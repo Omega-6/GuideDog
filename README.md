@@ -1,10 +1,10 @@
-# BlindGuide AI
+# GuideDog AI
 
 ## Real-Time Navigation Assistant for the Visually Impaired
 
-BlindGuide AI is a smartphone application that helps blind and visually impaired people navigate safely through their environment. It uses the phone's camera to detect obstacles, stairs, doors, and other hazards, then warns the user through voice alerts, directional sounds, and vibration patterns.
+GuideDog AI is a smartphone application that helps blind and visually impaired people navigate safely through their environment. It uses the phone's camera to detect obstacles, stairs, doors, and other hazards, then warns the user through voice alerts, directional sounds, and vibration patterns.
 
-Unlike expensive guide dogs or specialized hardware, BlindGuide runs entirely on a standard smartphone, making it accessible to anyone who needs it.
+Unlike expensive guide dogs or specialized hardware, GuideDog runs entirely on a standard smartphone, making it accessible to anyone who needs it.
 
 ---
 
@@ -38,15 +38,15 @@ Current solutions have significant limitations:
 
 **Existing Smartphone Apps** generally require manual activation for each scan and don't provide continuous, automatic protection.
 
-We saw an opportunity: nearly every visually impaired person already carries a powerful computer in their pocket. Modern smartphones have cameras, speakers, vibration motors, and enough processing power to run machine learning models. We built BlindGuide to take advantage of this existing hardware.
+We saw an opportunity: nearly every visually impaired person already carries a powerful computer in their pocket. Modern smartphones have cameras, speakers, vibration motors, and enough processing power to run machine learning models. We built GuideDog to take advantage of this existing hardware.
 
 ---
 
 ## Our Solution
 
-BlindGuide AI acts like a digital guide dog. Once activated, it continuously monitors the environment through the phone's camera and automatically warns users about obstacles before they encounter them.
+GuideDog AI acts like a digital guide dog. Once activated, it continuously monitors the environment through the phone's camera and automatically warns users about obstacles before they encounter them.
 
-The key insight behind our design is that blind users need protection, not just information on demand. Previous apps required users to manually trigger a scan, which meant they had to already suspect danger was present. BlindGuide flips this model by assuming the user wants constant protection and only asking them to interact when they want additional details.
+The key insight behind our design is that blind users need protection, not just information on demand. Previous apps required users to manually trigger a scan, which meant they had to already suspect danger was present. GuideDog flips this model by assuming the user wants constant protection and only asking them to interact when they want additional details.
 
 ### Core Principles
 
@@ -62,7 +62,7 @@ The key insight behind our design is that blind users need protection, not just 
 
 ## How It Works
 
-When a user opens BlindGuide, the app immediately begins analyzing the camera feed. Two detection systems work in parallel:
+When a user opens GuideDog, the app immediately begins analyzing the camera feed. Two detection systems work in parallel:
 
 ### Local Object Detection
 
@@ -72,7 +72,7 @@ When the model detects an object, the app estimates its distance based on how la
 
 ### Cloud AI Analysis
 
-Some hazards are difficult for the local model to detect. Stairs, doorways, wet floors, and walls require understanding the scene rather than just recognizing individual objects. For these, BlindGuide sends camera frames to cloud-based AI services (OpenAI's GPT-4o and Anthropic's Claude) that can understand complex visual scenes.
+Some hazards are difficult for the local model to detect. Stairs, doorways, wet floors, and walls require understanding the scene rather than just recognizing individual objects. For these, GuideDog sends camera frames to cloud-based AI services (OpenAI's GPT-4o and Anthropic's Claude) that can understand complex visual scenes.
 
 To minimize response time, the app calls both AI services simultaneously and uses whichever responds first. This "racing" approach typically cuts response time nearly in half compared to calling a single service.
 
@@ -92,7 +92,7 @@ The spatial audio system pans sounds left or right to indicate the obstacle's di
 
 ## Technical Architecture
 
-BlindGuide consists of three main components:
+GuideDog consists of three main components:
 
 ### Frontend Application
 
@@ -215,7 +215,7 @@ Users can learn to recognize these patterns and understand the situation even in
 
 ### For End Users
 
-The simplest way to use BlindGuide is to visit the web app directly:
+The simplest way to use GuideDog is to visit the web app directly:
 
 1. Open Safari (iOS) or Chrome (Android) on your smartphone
 2. Navigate to the app URL
@@ -247,7 +247,7 @@ The app consists of just three files (index.html, manifest.json, sw.js), making 
 
 ### Getting Started
 
-When you first open BlindGuide, you'll hear a welcome message explaining the basic controls. The app will ask for camera permission, which is required for obstacle detection.
+When you first open GuideDog, you'll hear a welcome message explaining the basic controls. The app will ask for camera permission, which is required for obstacle detection.
 
 Once permission is granted, protection begins automatically. Point your phone's camera in the direction you're walking. Most people hold the phone at chest level or attach it to a lanyard.
 
@@ -273,7 +273,7 @@ Once permission is granted, protection begins automatically. Point your phone's 
 
 ### Battery Considerations
 
-BlindGuide uses the camera and processor continuously, which does consume battery. In our testing, the app uses roughly 20-25% battery per hour of active use. For longer trips, consider bringing a portable charger.
+GuideDog uses the camera and processor continuously, which does consume battery. In our testing, the app uses roughly 20-25% battery per hour of active use. For longer trips, consider bringing a portable charger.
 
 ---
 
@@ -353,7 +353,7 @@ We have several enhancements planned:
 
 **Multiple Languages**: Adding support for Spanish, Mandarin, Hindi, and other languages.
 
-**Community Hazard Reporting**: Allowing users to report temporary hazards and share them with other BlindGuide users.
+**Community Hazard Reporting**: Allowing users to report temporary hazards and share them with other GuideDog users.
 
 ---
 
@@ -373,4 +373,4 @@ This project is released under the MIT License. You are free to use, modify, and
 
 ---
 
-BlindGuide AI was created with the belief that technology should adapt to people, not the other way around. We hope this tool makes a meaningful difference in the daily lives of visually impaired individuals.
+GuideDog AI was created with the belief that technology should adapt to people, not the other way around. We hope this tool makes a meaningful difference in the daily lives of visually impaired individuals.
