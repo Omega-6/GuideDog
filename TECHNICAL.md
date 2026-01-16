@@ -1,8 +1,8 @@
 # Technical Documentation
 
-## BlindGuide AI - Code Architecture and Implementation Details
+## GuideDog AI - Code Architecture and Implementation Details
 
-This document provides detailed technical information about the BlindGuide AI codebase. It's intended for developers who want to understand, modify, or extend the application.
+This document provides detailed technical information about the GuideDog AI codebase. It's intended for developers who want to understand, modify, or extend the application.
 
 ---
 
@@ -24,7 +24,7 @@ This document provides detailed technical information about the BlindGuide AI co
 The application is deliberately simple, consisting of only three files:
 
 ```
-BlindGuide/
+GuideDog/
     index.html      - Complete application (HTML, CSS, and JavaScript)
     manifest.json   - PWA manifest for installation
     sw.js           - Service Worker for offline support
@@ -535,4 +535,4 @@ The code prioritizes readability over cleverness. Where a more elegant solution 
 
 ---
 
-This documentation covers the main technical aspects of BlindGuide AI. For questions not addressed here, examine the source code directly or contact the development team.
+This documentation covers the main technical aspects of GuideDog AI. For questions not addressed here, examine the source code directly or contact the development team.
