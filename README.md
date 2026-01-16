@@ -4,6 +4,13 @@
 # Use this URL to visit GuideDog AI (For Best Experience, Use Mobile Devices):
 [https://omega-6.github.io/GuideDog/](https://omega-6.github.io/GuideDog/)
 
+## Try It Now
+
+Scan this QR code to open BlindGuide on your phone:
+
+![BlindGuide QR Code](blindguide-qr.png)
+
+Or visit: [https://omega-6.github.io/GuideDog/](https://omega-6.github.io/GuideDog/)
 
 
 ## Real-Time Navigation Assistant for the Visually Impaired
