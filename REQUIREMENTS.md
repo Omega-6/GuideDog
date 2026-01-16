@@ -1,6 +1,6 @@
 # Software Requirements Specification
 
-## BlindGuide AI
+## GuideDog AI
 
 **Version:** 1.0  
 **Date:** January 2025
@@ -22,11 +22,11 @@
 
 ### 1.1 Purpose
 
-This document describes what the BlindGuide AI application needs to do. It serves as a contract between the development team and stakeholders about the expected functionality.
+This document describes what the GuideDog AI application needs to do. It serves as a contract between the development team and stakeholders about the expected functionality.
 
 ### 1.2 Scope
 
-BlindGuide AI is a navigation assistance application for visually impaired users. It runs on smartphones and uses the camera to detect obstacles, warning users through voice, sound, and vibration.
+GuideDog AI is a navigation assistance application for visually impaired users. It runs on smartphones and uses the camera to detect obstacles, warning users through voice, sound, and vibration.
 
 The application will:
 - Detect common obstacles automatically
@@ -59,7 +59,7 @@ The application will not:
 
 ### 2.1 Product Perspective
 
-BlindGuide AI is a standalone application that runs in a web browser on a smartphone. It uses the phone's built-in camera, speakers, and vibration motor. For advanced features, it connects to cloud AI services over the internet.
+GuideDog AI is a standalone application that runs in a web browser on a smartphone. It uses the phone's built-in camera, speakers, and vibration motor. For advanced features, it connects to cloud AI services over the internet.
 
 The application does not require any additional hardware or accessories.
 
@@ -354,4 +354,4 @@ The main screen consists of:
 
 ---
 
-This document defines the requirements for BlindGuide AI version 1.0. Changes to these requirements should be documented and approved before implementation.
+This document defines the requirements for GuideDog AI version 1.0. Changes to these requirements should be documented and approved before implementation.
