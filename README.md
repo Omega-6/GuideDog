@@ -4,7 +4,7 @@
 # Use this URL or scan this QR Code to visit GuideDog AI (For Best Experience, Use Mobile Devices):
 [https://omega-6.github.io/GuideDog/](https://omega-6.github.io/GuideDog/)
 
-Scan this QR code to open BlindGuide on your phone:
+Scan this QR code to open GuideDog AI on your phone:
 
 ![BlindGuide QR Code](blindguide-qr.png)
 
