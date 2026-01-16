@@ -365,11 +365,16 @@ We're grateful to the open-source community for TensorFlow.js and the various We
 
 We acknowledge the AI research teams at OpenAI and Anthropic whose vision models power the scene understanding features.
 
----
+## Citations
 
-## License
-
-This project is released under the MIT License. You are free to use, modify, and distribute the code for any purpose.
+References
+TensorFlow.js: Machine Learning for the Web. Google Brain Team. https://www.tensorflow.org/js Apache 2.0 License.
+COCO-SSD Object Detection Model. TensorFlow.js Models. https://github.com/tensorflow/tfjs-models/tree/master/coco-ssd Based on the COCO (Common Objects in Context) dataset by Lin, T.Y. et al. (2014).
+OpenAI GPT-4o Vision API. OpenAI. https://platform.openai.com/docs/guides/vision
+Anthropic Claude Vision API. Anthropic. https://docs.anthropic.com/claude/docs/vision
+Web Speech API. W3C Community Group. https://wicg.github.io/speech-api/
+Web Audio API. W3C Recommendation. https://www.w3.org/TR/webaudio/
+Cloudflare Workers. Cloudflare, Inc. https://workers.cloudflare.com/
 
 ---
 
