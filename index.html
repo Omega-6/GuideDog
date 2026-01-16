@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <title>BlindGuide</title>
+    <link rel="manifest" href="manifest.json">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        html, body { height: 100%; overflow: hidden; background: #000; color: #fff; font-family: -apple-system, sans-serif; }
+        
+        .app { height: 100dvh; display: flex; flex-direction: column; position: relative; }
+        
+        /* Camera preview - visible for sighted helpers */
+        #video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.3;
+        }
+        
+        /* Main overlay */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+        
+        /* Status bar */
+        .status-bar {
+            padding: 15px;
+            padding-top: max(15px, env(safe-area-inset-top));
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .status-badge {
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        
+        .badge-safe { background: #0f8; color: #000; }
+        .badge-warning { background: #fa0; color: #000; animation: pulse 1s infinite; }
+        .badge-danger { background: #f44; color: #fff; animation: pulse 0.3s infinite; }
+        
+        .ai-badge {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 11px;
+            background: rgba(255,255,255,0.2);
+        }
+        
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        
+        /* Alert area */
+        .alert-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .alert-box {
+            width: 100%;
+            max-width: 350px;
+            padding: 25px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        
+        .alert-box.safe {
+            background: rgba(0, 255, 136, 0.2);
+            border: 3px solid #0f8;
+        }
+        
+        .alert-box.warning {
+            background: rgba(255, 170, 0, 0.3);
+            border: 3px solid #fa0;
+            animation: pulse 1s infinite;
+        }
+        
+        .alert-box.danger {
+            background: rgba(255, 68, 68, 0.4);
+            border: 4px solid #f44;
+            animation: shake 0.3s infinite;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        .alert-icon {
+            font-size: 60px;
+            margin-bottom: 15px;
+        }
+        
+        .alert-text {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+        
+        .alert-detail {
+            font-size: 16px;
+            margin-top: 10px;
+            opacity: 0.8;
+        }
+        
+        /* Direction indicators */
+        .direction-row {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .direction-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.3);
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            opacity: 0.5;
+            transition: all 0.2s;
+        }
+        
+        .direction-btn.active {
+            opacity: 1;
+            border-color: #fa0;
+            background: rgba(255,170,0,0.3);
+        }
+        
+        .direction-btn.danger {
+            border-color: #f44;
+            background: rgba(255,68,68,0.4);
+            animation: pulse 0.3s infinite;
+        }
+        
+        /* Control bar */
+        .control-bar {
+            padding: 15px;
+            padding-bottom: max(15px, env(safe-area-inset-bottom));
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            display: flex;
+            gap: 10px;
+        }
+        
+        .ctrl-btn {
+            flex: 1;
+            padding: 18px 10px;
+            border: none;
+            border-radius: 15px;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        
+        .ctrl-btn.tall {
+            padding: 36px 10px;
+        }
+        
+        .ctrl-btn .icon { font-size: 24px; }
+        
+        .ctrl-btn.mic {
+            background: #48f;
+        }
+        
+        .ctrl-btn.mic.listening {
+            background: #f44;
+            animation: pulse 0.5s infinite;
+        }
+        
+        /* Loading */
+        .loading {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.5s;
+        }
+        .loading.hidden { opacity: 0; pointer-events: none; }
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid #333;
+            border-top-color: #0f8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { font-size: 18px; margin-top: 25px; text-align: center; }
+        .loading-subtext { font-size: 14px; margin-top: 10px; color: #888; text-align: center; }
+        
+        /* Help */
+        .help {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.98);
+            z-index: 50;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .help.visible { display: flex; }
+        .help-title { font-size: 24px; font-weight: 700; margin-bottom: 20px; text-align: center; }
+        .help-item { padding: 15px; margin-bottom: 10px; background: #111; border-radius: 10px; }
+        .help-label { font-size: 16px; font-weight: 700; color: #48f; }
+        .help-desc { font-size: 14px; color: #aaa; margin-top: 5px; }
+        .help-close { margin-top: 20px; padding: 20px; background: #48f; border: none; border-radius: 15px; color: #fff; font-size: 18px; font-weight: 700; }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">Loading, please wait a moment</div>
+        <div class="loading-subtext">Best Works on Mobile Devices</div>
+    </div>
+    
+    <div class="help" id="help">
+        <div class="help-title">BlindGuide</div>
+        
+        <div class="help-item">
+            <div class="help-label">AUTOMATIC PROTECTION</div>
+            <div class="help-desc">App constantly scans and warns you about obstacles, stairs, walls, doors automatically. You don't need to do anything!</div>
+        </div>
+        
+        <div class="help-item">
+            <div class="help-label">Voice Commands (tap mic button)</div>
+            <div class="help-desc">"What's around" - describe area<br>"Is it safe" - check path<br>"Left" / "Right" - check sides<br>"Stop" / "Resume" - pause alerts</div>
+        </div>
+        
+        <div class="help-item">
+            <div class="help-label">Gesture Controls</div>
+            <div class="help-desc">Tap TOP = describe area<br>Tap BOTTOM = detailed scan<br>Swipe LEFT/RIGHT = check sides</div>
+        </div>
+        
+        <div class="help-item">
+            <div class="help-label">Alert Sounds</div>
+            <div class="help-desc">Beeps indicate direction of obstacle<br>Fast beeps = DANGER, very close!<br>Vibration = obstacle in your path</div>
+        </div>
+        
+        <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
+    </div>
+    
+    <div class="app">
+        <video id="video" autoplay playsinline muted></video>
+        
+        <div class="overlay">
+            <div class="status-bar">
+                <div class="status-badge badge-safe" id="statusBadge">SAFE</div>
+                <div class="ai-badge" id="aiBadge">AI Active</div>
+            </div>
+            
+            <div class="alert-area" id="alertArea">
+                <div class="alert-box safe" id="alertBox">
+                    <div class="alert-icon" id="alertIcon">OK</div>
+                    <div class="alert-text" id="alertText">Path Clear</div>
+                    <div class="alert-detail" id="alertDetail">Walking is safe</div>
+                </div>
+                
+                <div class="direction-row">
+                    <div class="direction-btn" id="dirLeft">L</div>
+                    <div class="direction-btn" id="dirAhead">F</div>
+                    <div class="direction-btn" id="dirRight">R</div>
+                </div>
+            </div>
+            
+            <div class="control-bar">
+                <button class="ctrl-btn tall" id="btnDescribe">
+                    <span class="icon">D</span>
+                    <span>Describe</span>
+                </button>
+                <button class="ctrl-btn mic" id="btnMic">
+                    <span class="icon">M</span>
+                    <span>Speak</span>
+                </button>
+                <button class="ctrl-btn tall" id="btnScan">
+                    <span class="icon">S</span>
+                    <span>Scan</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    
+    <script>
+    // ========== CONFIG ==========
+    const CONFIG = {
+        WORKER_URL: "https://guidedog.kpremks.workers.dev",
+        
+        // Distance zones (in meters, estimated)
+        DANGER_ZONE: 1.0,      // < 1m = DANGER
+        WARNING_ZONE: 2.0,     // < 2m = WARNING  
+        AWARENESS_ZONE: 4.0,   // < 4m = awareness
+        
+        // Timing
+        AI_SCAN_INTERVAL: 3000,      // AI scan every 3 seconds
+        LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
+        VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
+        VIBRATE_COOLDOWN: 500,
+        
+        // Confidence threshold for naming objects
+        HIGH_CONFIDENCE: 0.7,        // Must be >70% confident to name the object
+        
+        // Objects that are dangerous
+        CRITICAL: ["car", "bus", "truck", "motorcycle", "bicycle", "train"],
+        OBSTACLES: ["person", "dog", "chair", "bench", "couch", "bed", "dining table", 
+                    "toilet", "refrigerator", "potted plant", "suitcase", "backpack",
+                    "fire hydrant", "stop sign", "parking meter", "bicycle"]
+    };
+    
+    // ========== STATE ==========
+    const state = {
+        video: null,
+        model: null,
+        isRunning: false,
+        isPaused: false,
+        
+        // Detection results
+        localDetections: [],
+        aiResult: null,
+        lastAIScan: 0,
+        
+        // Current status
+        currentStatus: 'safe',  // safe, warning, danger
+        currentObstacle: null,
+        
+        // Alert tracking (prevent spam)
+        lastAlerts: {},
+        lastVibrate: 0,
+        lastVoice: 0,
+        
+        // Voice
+        recognition: null,
+        isListening: false,
+        
+        // Audio
+        audioCtx: null
+    };
+    
+    // ========== AUDIO ==========
+    function initAudio() {
+        try {
+            state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {}
+    }
+    
+    function resumeAudio() {
+        if (state.audioCtx?.state === 'suspended') {
+            state.audioCtx.resume();
+        }
+    }
+    
+    function playBeep(frequency, duration, pan = 0, volume = 0.5) {
+        if (!state.audioCtx) return;
+        resumeAudio();
+        
+        try {
+            const osc = state.audioCtx.createOscillator();
+            const gain = state.audioCtx.createGain();
+            const panner = state.audioCtx.createStereoPanner();
+            
+            osc.frequency.value = frequency;
+            osc.type = 'sine';
+            
+            gain.gain.setValueAtTime(volume, state.audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, state.audioCtx.currentTime + duration);
+            
+            panner.pan.value = Math.max(-1, Math.min(1, pan));
+            
+            osc.connect(gain);
+            gain.connect(panner);
+            panner.connect(state.audioCtx.destination);
+            
+            osc.start();
+            osc.stop(state.audioCtx.currentTime + duration);
+        } catch (e) {}
+    }
+    
+    // Alert sounds based on urgency
+    function playAlertSound(position, urgency) {
+        let pan = 0;
+        if (position === 'left') pan = -0.8;
+        else if (position === 'right') pan = 0.8;
+        
+        if (urgency === 'danger') {
+            // Rapid high beeps
+            playBeep(1200, 0.1, pan, 0.7);
+            setTimeout(() => playBeep(1200, 0.1, pan, 0.7), 150);
+            setTimeout(() => playBeep(1200, 0.1, pan, 0.7), 300);
+        } else if (urgency === 'warning') {
+            // Double beep
+            playBeep(800, 0.15, pan, 0.5);
+            setTimeout(() => playBeep(800, 0.15, pan, 0.5), 200);
+        } else {
+            // Single soft beep
+            playBeep(500, 0.2, pan, 0.3);
+        }
+    }
+    
+    // ========== VIBRATION ==========
+    function vibrate(pattern) {
+        const now = Date.now();
+        if (now - state.lastVibrate < CONFIG.VIBRATE_COOLDOWN) return;
+        state.lastVibrate = now;
+        
+        try {
+            navigator.vibrate?.(pattern);
+        } catch (e) {}
+    }
+    
+    function vibrateAlert(urgency) {
+        if (urgency === 'danger') {
+            vibrate([200, 100, 200, 100, 200]);
+        } else if (urgency === 'warning') {
+            vibrate([150, 100, 150]);
+        } else {
+            vibrate([100]);
+        }
+    }
+    
+    // ========== SPEECH ==========
+    function speak(text, force = false) {
+        if (!text) return;
+        
+        const now = Date.now();
+        if (!force && now - state.lastVoice < CONFIG.VOICE_COOLDOWN) return;
+        
+        // Stop listening while speaking
+        if (state.isListening) stopListening();
+        
+        try {
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 1.0;
+            u.volume = 1.0;
+            speechSynthesis.speak(u);
+            state.lastVoice = now;
+            console.log('Speaking:', text);
+        } catch (e) {}
+    }
+    
+    // Speak alert only if not recently said
+    function speakAlert(key, text) {
+        const now = Date.now();
+        if (now - (state.lastAlerts[key] || 0) < 4000) return; // Don't repeat for 4s
+        state.lastAlerts[key] = now;
+        speak(text, true);
+    }
+    
+    // ========== SPEECH RECOGNITION ==========
+    function initSpeechRecognition() {
+        try {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) return false;
+            
+            state.recognition = new SR();
+            state.recognition.continuous = false;
+            state.recognition.interimResults = false;
+            state.recognition.lang = 'en-US';
+            
+            state.recognition.onstart = () => {
+                state.isListening = true;
+                updateMicButton(true);
+            };
+            
+            state.recognition.onresult = (e) => {
+                const text = e.results[0][0].transcript.toLowerCase();
+                console.log('Heard:', text);
+                handleVoiceCommand(text);
+            };
+            
+            state.recognition.onend = () => {
+                state.isListening = false;
+                updateMicButton(false);
+            };
+            
+            state.recognition.onerror = (e) => {
+                state.isListening = false;
+                updateMicButton(false);
+                if (e.error === 'no-speech') {
+                    speak('No speech heard. Tap microphone and try again.');
+                }
+            };
+            
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    function startListening() {
+        if (!state.recognition) {
+            speak('Voice not available');
+            return;
+        }
+        
+        if (state.isListening) {
+            stopListening();
+            return;
+        }
+        
+        speechSynthesis.cancel();
+        try {
+            state.recognition.start();
+            vibrate([50]);
+        } catch (e) {
+            try {
+                state.recognition.stop();
+                setTimeout(() => state.recognition.start(), 100);
+            } catch (e2) {}
+        }
+    }
+    
+    function stopListening() {
+        try {
+            state.recognition?.stop();
+        } catch (e) {}
+        state.isListening = false;
+        updateMicButton(false);
+    }
+    
+    function updateMicButton(listening) {
+        const btn = document.getElementById('btnMic');
+        if (listening) {
+            btn.classList.add('listening');
+            btn.querySelector('span:last-child').textContent = 'Listening...';
+        } else {
+            btn.classList.remove('listening');
+            btn.querySelector('span:last-child').textContent = 'Speak';
+        }
+    }
+    
+    function handleVoiceCommand(text) {
+        vibrate([30]);
+        
+        if (text.includes('start') || text.includes('begin')) {
+            if (document.getElementById('help').classList.contains('visible')) {
+                hideHelp();
+                return;
+            }
+        }
+        
+        if (text.includes('stop') || text.includes('pause') || text.includes('quiet')) {
+            state.isPaused = true;
+            speak('Alerts paused. Say resume to continue.', true);
+            return;
+        }
+        
+        if (text.includes('resume') || text.includes('continue')) {
+            state.isPaused = false;
+            speak('Alerts resumed.', true);
+            return;
+        }
+        
+        if (text.includes('around') || text.includes('describe') || text.includes('what')) {
+            describeArea();
+            return;
+        }
+        
+        if (text.includes('safe') || text.includes('clear') || text.includes('walk')) {
+            checkSafety();
+            return;
+        }
+        
+        if (text.includes('left')) {
+            speakDirection('left');
+            return;
+        }
+        
+        if (text.includes('right')) {
+            speakDirection('right');
+            return;
+        }
+        
+        if (text.includes('scan') || text.includes('stair') || text.includes('door')) {
+            triggerAIScan();
+            return;
+        }
+        
+        if (text.includes('help')) {
+            showHelp();
+            return;
+        }
+        
+        speak('Say: what is around, is it safe, left, right, or scan.', true);
+    }
+    
+    // ========== AI ANALYSIS ==========
+    async function analyzeWithAI() {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            canvas.getContext('2d').drawImage(state.video, 0, 0, 640, 480);
+            const imageData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+            
+            // Try both providers, use first response
+            const results = await Promise.allSettled([
+                fetchAI(imageData, 'openai'),
+                fetchAI(imageData, 'anthropic')
+            ]);
+            
+            for (const r of results) {
+                if (r.status === 'fulfilled' && r.value) {
+                    return r.value;
+                }
+            }
+            return null;
+        } catch (e) {
+            console.error('AI error:', e);
+            return null;
+        }
+    }
+    
+    async function fetchAI(imageData, provider) {
+        try {
+            const response = await fetch(CONFIG.WORKER_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: imageData, provider })
+            });
+            const data = await response.json();
+            return data.result || null;
+        } catch (e) {
+            console.error(`AI ${provider} error:`, e);
+            return null;
+        }
+    }
+    
+    // ========== LOCAL DETECTION ==========
+    async function detectLocal() {
+        if (!state.model || !state.video) return [];
+        
+        try {
+            const predictions = await state.model.detect(state.video);
+            
+            return predictions.map(p => {
+                const cx = (p.bbox[0] + p.bbox[2] / 2) / state.video.videoWidth;
+                const cy = (p.bbox[1] + p.bbox[3] / 2) / state.video.videoHeight;
+                const size = Math.max(p.bbox[2], p.bbox[3]) / Math.max(state.video.videoWidth, state.video.videoHeight);
+                
+                // Position
+                let position = 'ahead';
+                if (cx < 0.35) position = 'left';
+                else if (cx > 0.65) position = 'right';
+                
+                // Distance estimate from size
+                let distance = 5.0;
+                if (size > 0.6) distance = 0.5;
+                else if (size > 0.45) distance = 1.0;
+                else if (size > 0.3) distance = 1.5;
+                else if (size > 0.2) distance = 2.0;
+                else if (size > 0.1) distance = 3.0;
+                else if (size > 0.05) distance = 4.0;
+                
+                // Is it in the walking path?
+                const inPath = cx > 0.25 && cx < 0.75 && cy > 0.3;
+                
+                // Danger level
+                let danger = 'low';
+                if (CONFIG.CRITICAL.includes(p.class)) danger = 'critical';
+                else if (CONFIG.OBSTACLES.includes(p.class)) danger = 'obstacle';
+                
+                return {
+                    name: p.class,
+                    position: position,
+                    distance: distance,
+                    inPath: inPath,
+                    danger: danger,
+                    confidence: p.score
+                };
+            }).filter(d => d.confidence > 0.4);
+        } catch (e) {
+            return [];
+        }
+    }
+    
+    // ========== HELPER: Get display name based on confidence ==========
+    function getDisplayName(detection) {
+        // Only name the object if confidence is high enough
+        if (detection.confidence >= CONFIG.HIGH_CONFIDENCE) {
+            return detection.name;
+        } else {
+            return 'obstacle';
+        }
+    }
+    
+    // ========== MAIN PROTECTION LOOP ==========
+    async function protectionLoop() {
+        if (!state.isRunning) {
+            setTimeout(protectionLoop, 500);
+            return;
+        }
+        
+        // LOCAL DETECTION (fast, every 300ms)
+        state.localDetections = await detectLocal();
+        
+        // Find most dangerous obstacle
+        let mostDangerous = null;
+        let highestThreat = 'safe';
+        
+        for (const det of state.localDetections) {
+            if (!det.inPath) continue;
+            
+            if (det.distance < CONFIG.DANGER_ZONE) {
+                if (!mostDangerous || det.distance < mostDangerous.distance) {
+                    mostDangerous = det;
+                    highestThreat = 'danger';
+                }
+            } else if (det.distance < CONFIG.WARNING_ZONE && highestThreat !== 'danger') {
+                if (!mostDangerous || det.distance < mostDangerous.distance) {
+                    mostDangerous = det;
+                    highestThreat = 'warning';
+                }
+            }
+        }
+        
+        // AI SCAN (every 3 seconds for stairs, doors, etc.)
+        const now = Date.now();
+        if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused) {
+            state.lastAIScan = now;
+            
+            // Run AI scan in background
+            analyzeWithAI().then(result => {
+                if (result) {
+                    state.aiResult = result;
+                    const lower = result.toLowerCase();
+                    
+                    // Check for critical hazards AI can see but local model can't
+                    if (lower.includes('stair') || lower.includes('step down') || lower.includes('steps')) {
+                        highestThreat = 'danger';
+                        speakAlert('stairs', 'Warning! Stairs ahead!');
+                        vibrateAlert('danger');
+                        playAlertSound('ahead', 'danger');
+                        updateUI('danger', '!', 'STAIRS AHEAD!', 'Stop and check');
+                    } else if (lower.includes('step up') || lower.includes('curb')) {
+                        speakAlert('step', 'Step up ahead');
+                        vibrateAlert('warning');
+                    } else if (lower.includes('door')) {
+                        speakAlert('door', 'Door ahead');
+                    } else if (lower.includes('wall') || lower.includes('blocked')) {
+                        speakAlert('wall', 'Wall or blocked path ahead');
+                        vibrateAlert('warning');
+                    } else if (lower.includes('wet') || lower.includes('slippery')) {
+                        speakAlert('wet', 'Caution, wet or slippery floor');
+                        vibrateAlert('warning');
+                    }
+                }
+            });
+        }
+        
+        // UPDATE UI AND ALERTS based on local detection
+        if (!state.isPaused) {
+            if (highestThreat === 'danger' && mostDangerous) {
+                // IMMEDIATE DANGER
+                const displayName = getDisplayName(mostDangerous);
+                updateUI('danger', '!', `STOP! ${displayName.toUpperCase()}!`, `Very close ${mostDangerous.position}`);
+                updateDirections(mostDangerous.position, 'danger');
+                
+                playAlertSound(mostDangerous.position, 'danger');
+                vibrateAlert('danger');
+                
+                const escapeDir = mostDangerous.position === 'left' ? 'right' : 
+                                  mostDangerous.position === 'right' ? 'left' : 'back';
+                speakAlert(`danger_${mostDangerous.name}`, `Stop! ${displayName}! Go ${escapeDir}!`);
+                
+            } else if (highestThreat === 'warning' && mostDangerous) {
+                // WARNING
+                const displayName = getDisplayName(mostDangerous);
+                updateUI('warning', '!', `${displayName} ahead`, `About ${mostDangerous.distance.toFixed(1)} meters ${mostDangerous.position}`);
+                updateDirections(mostDangerous.position, 'warning');
+                
+                playAlertSound(mostDangerous.position, 'warning');
+                vibrateAlert('warning');
+                
+                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${mostDangerous.position}`);
+                
+            } else {
+                // SAFE
+                updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
+                updateDirections(null, 'safe');
+            }
+        }
+        
+        state.currentStatus = highestThreat;
+        state.currentObstacle = mostDangerous;
+        
+        // Continue loop
+        setTimeout(protectionLoop, CONFIG.LOCAL_SCAN_INTERVAL);
+    }
+    
+    // ========== UI UPDATES ==========
+    function updateUI(status, icon, text, detail) {
+        const badge = document.getElementById('statusBadge');
+        const box = document.getElementById('alertBox');
+        const iconEl = document.getElementById('alertIcon');
+        const textEl = document.getElementById('alertText');
+        const detailEl = document.getElementById('alertDetail');
+        
+        badge.className = `status-badge badge-${status}`;
+        badge.textContent = status === 'safe' ? 'SAFE' : status === 'warning' ? 'CAUTION' : 'DANGER';
+        
+        box.className = `alert-box ${status}`;
+        iconEl.textContent = icon;
+        textEl.textContent = text;
+        detailEl.textContent = detail;
+    }
+    
+    function updateDirections(position, status) {
+        const dirs = ['Left', 'Ahead', 'Right'];
+        dirs.forEach(d => {
+            const el = document.getElementById(`dir${d}`);
+            el.className = 'direction-btn';
+            
+            if (position === d.toLowerCase() || (position === 'ahead' && d === 'Ahead')) {
+                el.classList.add('active');
+                if (status === 'danger') el.classList.add('danger');
+            }
+        });
+    }
+    
+    // ========== USER ACTIONS ==========
+    async function describeArea() {
+        speak('Scanning surroundings...', true);
+        
+        const result = await analyzeWithAI();
+        if (result) {
+            speak(result, true);
+        } else if (state.localDetections.length > 0) {
+            const items = state.localDetections
+                .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
+                .slice(0, 3)
+                .map(d => `${d.name} ${d.position}`)
+                .join(', ');
+            if (items) {
+                speak(`I see: ${items}`, true);
+            } else {
+                speak('Objects detected but not clearly identified', true);
+            }
+        } else {
+            speak('Area appears clear', true);
+        }
+    }
+    
+    async function checkSafety() {
+        speak('Checking safety...', true);
+        
+        const result = await analyzeWithAI();
+        if (result) {
+            speak(result, true);
+        } else {
+            const obstacle = state.localDetections.find(d => d.inPath);
+            if (obstacle) {
+                const displayName = getDisplayName(obstacle);
+                speak(`${displayName} in your path, ${obstacle.distance.toFixed(1)} meters ahead`, true);
+            } else {
+                speak('Path appears clear', true);
+            }
+        }
+    }
+    
+    function speakDirection(dir) {
+        const items = state.localDetections.filter(d => d.position === dir);
+        if (items.length > 0) {
+            const displayName = getDisplayName(items[0]);
+            speak(`${displayName} on your ${dir}, about ${items[0].distance.toFixed(1)} meters`, true);
+        } else {
+            speak(`Nothing detected on your ${dir}`, true);
+        }
+        
+        // Flash direction
+        const el = document.getElementById(`dir${dir.charAt(0).toUpperCase() + dir.slice(1)}`);
+        el.classList.add('active');
+        setTimeout(() => el.classList.remove('active'), 1000);
+    }
+    
+    async function triggerAIScan() {
+        speak('Scanning surroundings...', true);
+        
+        const result = await analyzeWithAI();
+        if (result) {
+            speak(result, true);
+        } else {
+            speak('Scan complete. No additional hazards detected.', true);
+        }
+    }
+    
+    // ========== GESTURES ==========
+    function setupGestures() {
+        const area = document.getElementById('alertArea');
+        let touchStart = { x: 0, y: 0, time: 0 };
+        
+        area.addEventListener('touchstart', e => {
+            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+        }, { passive: true });
+        
+        area.addEventListener('touchend', e => {
+            const dx = e.changedTouches[0].clientX - touchStart.x;
+            const dy = e.changedTouches[0].clientY - touchStart.y;
+            const duration = Date.now() - touchStart.time;
+            
+            if (duration > 1500) {
+                showHelp();
+                return;
+            }
+            
+            // Swipe
+            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+                speakDirection(dx > 0 ? 'right' : 'left');
+                return;
+            }
+            
+            // Tap zones
+            const y = e.changedTouches[0].clientY / window.innerHeight;
+            if (y < 0.4) {
+                describeArea();
+            } else if (y > 0.6) {
+                triggerAIScan();
+            }
+        }, { passive: true });
+        
+        // Buttons
+        document.getElementById('btnDescribe').addEventListener('click', describeArea);
+        document.getElementById('btnMic').addEventListener('click', startListening);
+        document.getElementById('btnScan').addEventListener('click', triggerAIScan);
+    }
+    
+    // ========== HELP ==========
+    function showHelp() {
+        document.getElementById('help').classList.add('visible');
+        speak('BlindGuide automatically warns you about obstacles, stairs, walls, and doors. You don\'t need to do anything. Tap the button to start.', true);
+    }
+    
+    function hideHelp() {
+        document.getElementById('help').classList.remove('visible');
+        speak('BlindGuide active. I will warn you about obstacles automatically.', true);
+        state.isRunning = true;
+        state.isPaused = false;
+        protectionLoop();
+    }
+    
+    // ========== INIT ==========
+    async function init() {
+        state.video = document.getElementById('video');
+        initAudio();
+        initSpeechRecognition();
+        setupGestures();
+        
+        document.getElementById('helpClose').addEventListener('click', hideHelp);
+        
+        document.getElementById('loadingText').textContent = 'Loading, please wait a moment';
+        
+        try {
+            state.model = await cocoSsd.load();
+        } catch (e) {
+            console.error('Model error:', e);
+        }
+        
+        document.getElementById('loadingText').textContent = 'Starting camera...';
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: false
+            });
+            state.video.srcObject = stream;
+            await state.video.play();
+        } catch (e) {
+            speak('Camera required. Please allow camera access.', true);
+            return;
+        }
+        
+        document.getElementById('loading').classList.add('hidden');
+        
+        // First time help
+        if (!localStorage.getItem('blindguide_v7')) {
+            localStorage.setItem('blindguide_v7', 'true');
+            showHelp();
+        } else {
+            speak('BlindGuide active. I will warn you about obstacles.', true);
+            state.isRunning = true;
+            protectionLoop();
+        }
+    }
+    
+    window.addEventListener('load', init);
+    
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            state.isRunning = false;
+        } else {
+            state.isRunning = true;
+        }
+    });
+    
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+    </script>
+</body>
+</html>
