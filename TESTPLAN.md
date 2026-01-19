@@ -1,6 +1,6 @@
 # Test Plan
 
-## GuideDog AI
+## GuideDog
 
 **Version:** 1.0  
 **Date:** January 2026
@@ -23,7 +23,7 @@
 
 ### 1.1 Purpose
 
-This document describes how we tested GuideDog AI to make sure it works correctly and safely. Since this app is designed to protect visually impaired people from obstacles, thorough testing is especially important.
+This document describes how we tested GuideDog to make sure it works correctly and safely. Since this app is designed to protect visually impaired people from obstacles, thorough testing is especially important.
 
 ### 1.2 Scope
 
@@ -573,7 +573,7 @@ All five participants said they would use this application regularly. Three said
 
 ### 8.1 Summary
 
-GuideDog AI passed all 26 functional test cases. Performance meets or exceeds targets on all tested devices. User testing with five visually impaired participants confirmed the application is usable and valuable.
+GuideDog passed all 26 functional test cases. Performance meets or exceeds targets on all tested devices. User testing with five visually impaired participants confirmed the application is usable and valuable.
 
 ### 8.2 Recommendation
 
@@ -589,4 +589,4 @@ For future versions, we recommend:
 
 ---
 
-This test plan documents the verification of GuideDog AI version 1.0. The application meets its requirements and is suitable for its intended purpose.
+This test plan documents the verification of GuideDog version 1.0. The application meets its requirements and is suitable for its intended purpose.
