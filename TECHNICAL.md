@@ -1,8 +1,8 @@
 # Technical Documentation
 
-## GuideDog AI - Code Architecture and Implementation Details
+## GuideDog - Code Architecture and Implementation Details
 
-This document provides detailed technical information about the GuideDog AI codebase. It's intended for developers who want to understand, modify, or extend the application.
+This document provides detailed technical information about the GuideDog codebase. It's intended for developers who want to understand, modify, or extend the application.
 
 ---
 
@@ -535,4 +535,4 @@ The code prioritizes readability over cleverness. Where a more elegant solution 
 
 ---
 
-This documentation covers the main technical aspects of GuideDog AI. For questions not addressed here, examine the source code directly or contact the development team.
+This documentation covers the main technical aspects of GuideDog. For questions not addressed here, examine the source code directly or contact the development team.
