@@ -1,17 +1,17 @@
-# GuideDog AI
+# GuideDog
 
-# Try it out [GuideDog AI](https://omega-6.github.io/GuideDog/)
-# Use this URL or scan this QR Code to visit GuideDog AI (For Best Experience, Use Mobile Devices):
+# Try it out [GuideDog](https://omega-6.github.io/GuideDog/)
+# Use this URL or scan this QR Code to visit GuideDog (For Best Experience, Use Mobile Devices):
 [https://omega-6.github.io/GuideDog/](https://omega-6.github.io/GuideDog/)
 
-Scan this QR code to open GuideDog AI on your phone:
+Scan this QR code to open GuideDog on your phone:
 
 ![BlindGuide QR Code](blindguide-qr.png)
 
 
 ## Real-Time Navigation Assistant for the Visually Impaired
 
-GuideDog AI is a smartphone application (also accessible on the web) that helps blind and visually impaired people navigate safely through their environment. It uses the phone's camera to detect obstacles, stairs, doors, and other hazards, then warns the user through voice alerts, directional sounds, and vibration patterns.
+GuideDog is a smartphone application (also accessible on the web) that helps blind and visually impaired people navigate safely through their environment. It uses the phone's camera to detect obstacles, stairs, doors, and other hazards, then warns the user through voice alerts, directional sounds, and vibration patterns.
 
 Unlike expensive guide dogs or specialized hardware, GuideDog runs entirely on a standard smartphone, making it accessible to anyone who needs it.
 
@@ -53,7 +53,7 @@ We saw an opportunity: nearly every visually impaired person already carries a p
 
 ## Our Solution
 
-GuideDog AI acts like a digital guide dog. Once activated, it continuously monitors the environment through the phone's camera and automatically warns users about obstacles before they encounter them.
+GuideDog acts like a digital guide dog. Once activated, it continuously monitors the environment through the phone's camera and automatically warns users about obstacles before they encounter them.
 
 The key insight behind our design is that blind users need protection, not just information on demand. Previous apps required users to manually trigger a scan, which meant they had to already suspect danger was present. GuideDog flips this model by assuming the user wants constant protection and only asking them to interact when they want additional details.
 
@@ -387,4 +387,4 @@ Cloudflare Workers. Cloudflare, Inc. https://workers.cloudflare.com/
 
 ---
 
-GuideDog AI was created with the belief that technology should adapt to people, not the other way around. We hope this tool makes a meaningful difference in the daily lives of visually impaired individuals.
+GuideDog was created with the belief that technology should adapt to people, not the other way around. We hope this tool makes a meaningful difference in the daily lives of visually impaired individuals.
