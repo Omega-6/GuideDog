@@ -22,7 +22,7 @@
 
 ### 1.1 Purpose
 
-This document describes what the GuideDog application needs to do. It serves as a contract between the development team and stakeholders about the expected functionality.
+This document describes what the GuideDog application does.
 
 ### 1.2 Scope
 
