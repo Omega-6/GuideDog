@@ -299,7 +299,7 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 14</div>
+    <div class="version-tag" id="versionTag">build 15</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -412,9 +412,12 @@
         localDetections: [],
         aiResult: null,
         lastAIScan: 0,
+        aiScanInProgress: false, // prevents overlapping requests (sonnet takes 2-3s)
         aiHazard: null,          // persists AI-detected hazard across loop iterations
 
-        // Depth estimation (local MiDaS model)
+        // Depth estimation — LiDAR (WebXR) or Transformers.js fallback
+        xrSession: null,
+        xrDepthActive: false,
         depthPipeline: null,
         depthHistory: [],        // rolling window of {c,l,r} readings
         lastDepthScan: 0,
@@ -887,18 +890,109 @@
             speak: text.length < 80 ? text : '' };
     }
     
-    // ========== DEPTH ESTIMATION (local, no API — detects walls/floors/doors) ==========
+    // ========== DEPTH ESTIMATION ==========
+    // Strategy: try LiDAR via WebXR first (iPhone 12 Pro+), fall back to Transformers.js model.
+    // LiDAR gives real hardware depth at 60fps with zero download — far superior on Pro iPhones.
+
     async function initDepthModel() {
         const badge = document.getElementById('aiBadge');
+        if (badge) badge.textContent = 'Starting depth sensor…';
+
+        // ── ATTEMPT 1: WebXR Depth API (LiDAR on iPhone Pro, no model download) ──────────
+        if (navigator.xr) {
+            try {
+                const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                if (supported) {
+                    // Request AR session with depth sensing
+                    const session = await navigator.xr.requestSession('immersive-ar', {
+                        requiredFeatures: ['depth-sensing'],
+                        depthSensing: {
+                            usagePreference: ['cpu-optimized'],
+                            dataFormatPreference: ['luminance-alpha']
+                        }
+                    });
+
+                    state.xrSession = session;
+                    state.xrDepthActive = false; // set true once we get first frame
+
+                    const gl = document.createElement('canvas').getContext('webgl2', { xrCompatible: true })
+                            || document.createElement('canvas').getContext('webgl', { xrCompatible: true });
+
+                    if (gl) {
+                        await gl.makeXRCompatible?.();
+                        const layer = new XRWebGLLayer(session, gl);
+                        session.updateRenderState({ baseLayer: layer });
+
+                        const refSpace = await session.requestReferenceSpace('local');
+
+                        session.requestAnimationFrame(function onXRFrame(t, frame) {
+                            if (!state.isRunning) { session.end(); return; }
+                            session.requestAnimationFrame(onXRFrame);
+
+                            const depthInfo = frame.getDepthInformation?.(frame.getViewerPose(refSpace)?.views[0]);
+                            if (!depthInfo) return;
+
+                            state.xrDepthActive = true;
+                            const w = depthInfo.width, h = depthInfo.height;
+
+                            // Sample center, left, right strips (metres)
+                            let cSum = 0, cN = 0, lSum = 0, lN = 0, rSum = 0, rN = 0;
+                            const yStart = Math.floor(h * 0.2), yEnd = Math.floor(h * 0.8);
+                            for (let y = yStart; y < yEnd; y++) {
+                                for (let x = 0; x < w; x++) {
+                                    const d = depthInfo.getDepthInMeters(x / w, y / h);
+                                    if (!isFinite(d) || d <= 0) continue;
+                                    const fx = x / w;
+                                    if (fx > 0.30 && fx < 0.70) { cSum += d; cN++; }
+                                    else if (fx < 0.22)          { lSum += d; lN++; }
+                                    else if (fx > 0.78)          { rSum += d; rN++; }
+                                }
+                            }
+
+                            const c = cN > 0 ? cSum / cN : 5;
+                            const l = lN > 0 ? lSum / lN : 5;
+                            const r = rN > 0 ? rSum / rN : 5;
+
+                            state.depthHistory.push({ c, l, r, lidar: true });
+                            if (state.depthHistory.length > 6) state.depthHistory.shift();
+
+                            const hazard = computeLiDARHazard(c, l, r);
+                            if (hazard) {
+                                const ttl = hazard.level === 'danger' ? 3000 : 2500;
+                                if (!state.aiHazard || hazard.level === 'danger') {
+                                    state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+                                    speakAlert(hazard.key, hazard.speak);
+                                    playAlertSound('ahead', hazard.level);
+                                    vibrateAlert(hazard.level);
+                                }
+                            }
+                        });
+
+                        // Give it 3s to get first frame; if no depth data, fall through to model
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+
+                    if (state.xrDepthActive) {
+                        if (badge) badge.textContent = 'AI + LiDAR Active';
+                        console.log('WebXR LiDAR depth active');
+                        return; // success — don't load Transformers.js
+                    } else {
+                        // Session started but no depth frames — device lacks LiDAR
+                        session.end().catch(() => {});
+                        state.xrSession = null;
+                        console.warn('WebXR AR started but no depth data — device may lack LiDAR');
+                    }
+                }
+            } catch (e) {
+                console.warn('WebXR depth not available:', e.message || e);
+            }
+        }
+
+        // ── ATTEMPT 2: Transformers.js Depth-Anything model (all devices) ────────────────
         if (badge) badge.textContent = 'Loading depth model…';
 
-        // Wait for the <script type="module"> above to finish loading Transformers.js.
-        // Using a module script tag is far more reliable on iOS Safari than dynamic import()
-        // from a classic script — iOS Safari handles module scripts natively and correctly.
         const loaded = await new Promise(resolve => {
-            // Already done (module script ran before init reached here)
             if (window.__txPipeline) { resolve(true); return; }
-
             const onOk   = () => { cleanup(); resolve(true); };
             const onFail = () => { cleanup(); resolve(false); };
             const timer  = setTimeout(() => { cleanup(); resolve(false); }, 30000);
@@ -912,7 +1006,7 @@
         });
 
         if (!loaded || !window.__txPipeline) {
-            console.error('Depth model failed: Transformers.js did not load');
+            console.error('Depth: Transformers.js did not load');
             if (badge) badge.textContent = 'AI Active';
             return;
         }
@@ -921,41 +1015,54 @@
             const env = window.__txEnv;
             if (env) env.allowLocalModels = false;
             if (badge) badge.textContent = 'Downloading depth model…';
-
             state.depthPipeline = await window.__txPipeline(
-                'depth-estimation',
-                'Xenova/depth-anything-small-hf',
-                { quantized: true }  // ~24MB, cached by browser after first load
+                'depth-estimation', 'Xenova/depth-anything-small-hf', { quantized: true }
             );
-
             if (badge) badge.textContent = 'AI + Depth Active';
-            console.log('Depth model ready');
+            console.log('Transformers.js depth model ready');
         } catch (e) {
             console.error('Depth model failed:', e.message || e);
             if (badge) badge.textContent = 'AI Active';
         }
     }
 
+    // LiDAR hazard: distances are real metres — use absolute thresholds
+    function computeLiDARHazard(c, l, r) {
+        const hist = state.depthHistory;
+        if (hist.length < 2) return null;
+
+        // Closest surface in center strip
+        if (c <= 0.3) return { level: 'danger', key: 'lidar_close',
+            label: 'STOP', speak: 'Stop! Obstacle very close!', uiDetail: 'LiDAR: obstacle under 30cm', fromDepth: true };
+        if (c <= 0.7) return { level: 'danger', key: 'lidar_close',
+            label: 'OBSTACLE CLOSE', speak: 'Stop! Something directly ahead!', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+        if (c <= 1.5) return { level: 'warning', key: 'lidar_near',
+            label: 'OBSTACLE AHEAD', speak: 'Obstacle ahead, slow down.', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+
+        // Approaching check: center getting closer over last 2 readings
+        const prev = hist[hist.length - 2];
+        if (prev.lidar && c < prev.c - 0.15 && c < 3.0) {
+            return { level: 'warning', key: 'lidar_approach',
+                label: 'APPROACHING', speak: 'Something ahead, getting closer.', uiDetail: `LiDAR: approaching ${c.toFixed(1)}m`, fromDepth: true };
+        }
+
+        return null;
+    }
+
     async function runDepthDetection() {
+        // LiDAR runs via XR animation frame — nothing to do here
+        if (state.xrDepthActive) return null;
         if (!state.depthPipeline || !state.video || state.video.videoWidth === 0) return null;
 
         try {
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 256;
+            canvas.width = 256; canvas.height = 256;
             canvas.getContext('2d').drawImage(state.video, 0, 0, 256, 256);
 
             const { depth } = await state.depthPipeline(canvas.toDataURL('image/jpeg', 0.6));
-            // depth: RawImage (0–255). Convention-agnostic — we only use relative values.
+            const data = depth.data, w = depth.width, h = depth.height, ch = depth.channels || 1;
 
-            const data = depth.data;
-            const w = depth.width;
-            const h = depth.height;
-            const ch = depth.channels || 1;
-
-            // Sample three vertical strips (left / center / right)
             let cSum = 0, cN = 0, lSum = 0, lN = 0, rSum = 0, rN = 0;
-
             for (let y = Math.floor(h * 0.15); y < Math.floor(h * 0.85); y++) {
                 for (let x = 0; x < w; x++) {
                     const v = data[(y * w + x) * ch];
@@ -980,6 +1087,7 @@
         }
     }
 
+    // Transformers.js depth hazard (relative values 0-255, not real metres)
     function computeDepthHazard(c, l, r) {
         const hist = state.depthHistory;
         if (hist.length < 2) return null;
@@ -987,27 +1095,18 @@
         const scene = (c + l + r) / 3;
         if (scene < 1) return null;
 
-        // Normalise relative to scene average — removes lighting and distance bias,
-        // and works regardless of whether high=close or high=far in the model output.
         const cR = c / scene;
         const sideAvg = ((l + r) / 2) / scene;
         const deviation = Math.abs(cR - sideAvg);
 
-        // CORRIDOR SUPPRESSION ─────────────────────────────────────────────────
-        // If center depth is similar to sides → normal corridor or room.
-        // Don't spam alerts just because there are walls around you.
-        if (deviation < 0.18) return null;
+        if (deviation < 0.18) return null; // corridor suppression
 
-        // APPROACH CHECK ───────────────────────────────────────────────────────
-        // Only alert if the center is becoming MORE extreme relative to sides
-        // (i.e. you are walking toward the obstacle, not away from it).
         const prev = hist[hist.length - 2];
         const prevScene = (prev.c + prev.l + prev.r) / 3;
         if (prevScene < 1) return null;
         const prevDeviation = Math.abs((prev.c / prevScene) - ((prev.l + prev.r) / 2 / prevScene));
         const growing = deviation > prevDeviation + 0.02;
 
-        // Suppress warnings unless actively approaching; allow danger regardless
         const urgency = deviation > 0.45 ? 'danger' : 'warning';
         if (urgency === 'warning' && !growing) return null;
 
@@ -1015,9 +1114,7 @@
             level: urgency,
             key: 'depth_wall',
             label: urgency === 'danger' ? 'OBSTACLE CLOSE' : 'OBSTACLE AHEAD',
-            speak: urgency === 'danger'
-                ? 'Stop! Something directly ahead!'
-                : 'Obstacle in path, slow down.',
+            speak: urgency === 'danger' ? 'Stop! Something directly ahead!' : 'Obstacle in path, slow down.',
             uiDetail: 'Depth sensor: obstacle in path',
             fromDepth: true
         };
@@ -1103,10 +1200,12 @@
         }
 
         // AI SCAN (background, every 1.5s — haiku is fast enough)
-        if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused) {
+        if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused && !state.aiScanInProgress) {
             state.lastAIScan = now;
+            state.aiScanInProgress = true;
 
             analyzeWithAI('background').then(result => {
+                state.aiScanInProgress = false;
                 if (!result) return;
                 state.aiResult = result;
                 const hazard = parseAIResult(result);
@@ -1135,9 +1234,9 @@
 
                 // Re-scan sooner if hazard found (keep watching until clear)
                 if (hazard.level !== 'info') {
-                    state.lastAIScan = Date.now() - (CONFIG.AI_SCAN_INTERVAL - 1000);
+                    state.lastAIScan = Date.now() - (CONFIG.AI_SCAN_INTERVAL - 500);
                 }
-            });
+            }).catch(() => { state.aiScanInProgress = false; });
         }
 
         // UPDATE UI AND ALERTS
@@ -1399,6 +1498,7 @@
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             state.isRunning = false;
+            if (state.xrSession) { state.xrSession.end().catch(() => {}); state.xrSession = null; state.xrDepthActive = false; }
         } else if (state.model && state.video?.srcObject) {
             // Only restart if fully initialised (model loaded, camera running)
             state.isRunning = true;

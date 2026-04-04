@@ -1,4 +1,4 @@
-const CACHE = 'guidedog-v5';      // bumped — forces guidedog-v4 to clear (build 14: higher res camera + AI images)
+const CACHE = 'guidedog-v6';      // bumped — forces guidedog-v5 to clear (build 15: fix overlapping AI scans + LiDAR)
 const CDN_CACHE = 'guidedog-cdn-v1';
 
 const APP_SHELL = ['/GuideDog/', '/GuideDog/index.html', '/GuideDog/manifest.json'];
