@@ -356,7 +356,7 @@
         AWARENESS_ZONE: 4.0,   // < 4m = awareness
         
         // Timing
-        AI_SCAN_INTERVAL: 3000,      // AI scan every 3 seconds
+        AI_SCAN_INTERVAL: 1500,      // AI scan every 1.5 seconds (haiku is fast)
         LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
         VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
         VIBRATE_COOLDOWN: 500,
@@ -382,6 +382,7 @@
         localDetections: [],
         aiResult: null,
         lastAIScan: 0,
+        aiHazard: null,          // persists AI-detected hazard across loop iterations
         
         // Current status
         currentStatus: 'safe',  // safe, warning, danger
@@ -761,12 +762,74 @@
     
     // ========== HELPER: Get display name based on confidence ==========
     function getDisplayName(detection) {
-        // Only name the object if confidence is high enough
         if (detection.confidence >= CONFIG.HIGH_CONFIDENCE) {
             return detection.name;
         } else {
             return 'obstacle';
         }
+    }
+
+    // ========== PARSE AI RESPONSE INTO STRUCTURED HAZARD ==========
+    function parseAIResult(text) {
+        const lower = text.toLowerCase();
+
+        // Path clear — reset AI hazard
+        if (/path\s*clear|no\s*hazard|all\s*clear|nothing|safe\s*to\s*proceed/.test(lower)) {
+            return { level: 'clear' };
+        }
+
+        // DANGER: stairs / drop-offs (falling hazard — highest priority)
+        if (/stair|step\s*down|steps\s*down|drop.?off|ledge|descend|going\s*down/.test(lower)) {
+            return { level: 'danger', key: 'stairs', label: 'STAIRS', uiDetail: 'Stop — stairs or drop-off',
+                speak: 'Warning! Stairs or drop ahead. Stop!' };
+        }
+
+        // DANGER: moving vehicles / cyclists
+        if (/\b(car|vehicle|truck|bus|cyclist|bicycle|motorbike|motorcycle)\b.*approach|moving|coming/.test(lower) ||
+            /approach.*\b(car|vehicle|truck|bus|cyclist)\b/.test(lower)) {
+            return { level: 'danger', key: 'vehicle', label: 'VEHICLE', uiDetail: 'Moving vehicle nearby',
+                speak: 'Vehicle approaching! Be careful!' };
+        }
+
+        // WARNING: wall / dead end / blocked path
+        if (/wall|dead.?end|blocked|barrier|partition|fence|closed\s*off|no\s*through|path\s*end/.test(lower)) {
+            return { level: 'warning', key: 'wall', label: 'WALL/BLOCKED', uiDetail: 'Wall or blocked path ahead',
+                speak: 'Wall ahead. Slow down.' };
+        }
+
+        // WARNING: step up / curb / raised surface
+        if (/step\s*up|curb|kerb|raised|bump|threshold/.test(lower)) {
+            return { level: 'warning', key: 'step_up', label: 'STEP UP', uiDetail: 'Step or curb ahead',
+                speak: 'Step up ahead.' };
+        }
+
+        // WARNING: wet / slippery
+        if (/wet|slippery|icy|ice|puddle|spill|damp/.test(lower)) {
+            return { level: 'warning', key: 'wet', label: 'WET FLOOR', uiDetail: 'Slippery surface',
+                speak: 'Caution — wet or slippery floor.' };
+        }
+
+        // WARNING: narrow passage
+        if (/narrow|tight\s*gap|squeeze|low\s*ceiling|low\s*beam|head.?height|duck/.test(lower)) {
+            return { level: 'warning', key: 'narrow', label: 'NARROW', uiDetail: 'Narrow or low clearance',
+                speak: 'Narrow passage or low obstacle ahead.' };
+        }
+
+        // INFO: door (open doors are navigable — just announce)
+        if (/door|doorway|entrance|exit|gateway|gate/.test(lower)) {
+            return { level: 'info', key: 'door', label: 'DOOR', uiDetail: 'Door or entrance ahead',
+                speak: 'Door ahead.' };
+        }
+
+        // Anything else the AI flags as a hazard
+        if (/hazard|caution|careful|danger|obstacle|object|block/.test(lower)) {
+            const shortText = text.length < 80 ? text : 'Hazard detected ahead.';
+            return { level: 'warning', key: 'hazard', label: 'HAZARD', uiDetail: shortText,
+                speak: shortText };
+        }
+
+        return { level: 'info', key: 'ai_note', label: 'AI', uiDetail: text,
+            speak: text.length < 80 ? text : '' };
     }
     
     // ========== MAIN PROTECTION LOOP ==========
@@ -775,17 +838,19 @@
             setTimeout(protectionLoop, 500);
             return;
         }
-        
+
+        const now = Date.now();
+
         // LOCAL DETECTION (fast, every 300ms)
         state.localDetections = await detectLocal();
-        
-        // Find most dangerous obstacle
+
+        // Find most dangerous local obstacle
         let mostDangerous = null;
         let highestThreat = 'safe';
-        
+
         for (const det of state.localDetections) {
             if (!det.inPath) continue;
-            
+
             if (det.distance < CONFIG.DANGER_ZONE) {
                 if (!mostDangerous || det.distance < mostDangerous.distance) {
                     mostDangerous = det;
@@ -798,78 +863,108 @@
                 }
             }
         }
-        
-        // AI SCAN (every 3 seconds for stairs, doors, etc.)
-        const now = Date.now();
+
+        // EXPIRE stale AI hazard
+        if (state.aiHazard && now > state.aiHazard.expiry) {
+            state.aiHazard = null;
+        }
+
+        // MERGE active AI hazard into threat level
+        // AI hazard persists across loop iterations so walls/doors keep alerting
+        if (state.aiHazard) {
+            const ah = state.aiHazard;
+            if (ah.level === 'danger' && highestThreat !== 'danger') {
+                highestThreat = 'danger';
+                if (!mostDangerous) {
+                    mostDangerous = { name: ah.key, position: 'ahead', distance: 0.8,
+                        inPath: true, confidence: 1.0, danger: 'obstacle', fromAI: true,
+                        displayLabel: ah.label, uiDetail: ah.uiDetail };
+                }
+            } else if (ah.level === 'warning' && highestThreat === 'safe') {
+                highestThreat = 'warning';
+                if (!mostDangerous) {
+                    mostDangerous = { name: ah.key, position: 'ahead', distance: 1.5,
+                        inPath: true, confidence: 1.0, danger: 'obstacle', fromAI: true,
+                        displayLabel: ah.label, uiDetail: ah.uiDetail };
+                }
+            }
+        }
+
+        // AI SCAN (background, every 1.5s — haiku is fast enough)
         if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused) {
             state.lastAIScan = now;
-            
-            // Run AI scan in background (fast model)
+
             analyzeWithAI('background').then(result => {
-                if (result) {
-                    state.aiResult = result;
-                    const lower = result.toLowerCase();
-                    
-                    // Check for critical hazards AI can see but local model can't
-                    if (lower.includes('stair') || lower.includes('step down') || lower.includes('steps')) {
-                        highestThreat = 'danger';
-                        speakAlert('stairs', 'Warning! Stairs ahead!');
-                        vibrateAlert('danger');
-                        playAlertSound('ahead', 'danger');
-                        updateUI('danger', '!', 'STAIRS AHEAD!', 'Stop and check');
-                    } else if (lower.includes('step up') || lower.includes('curb')) {
-                        speakAlert('step', 'Step up ahead');
-                        vibrateAlert('warning');
-                    } else if (lower.includes('door')) {
-                        speakAlert('door', 'Door ahead');
-                    } else if (lower.includes('wall') || lower.includes('blocked')) {
-                        speakAlert('wall', 'Wall or blocked path ahead');
-                        vibrateAlert('warning');
-                    } else if (lower.includes('wet') || lower.includes('slippery')) {
-                        speakAlert('wet', 'Caution, wet or slippery floor');
-                        vibrateAlert('warning');
-                    }
+                if (!result) return;
+                state.aiResult = result;
+                const hazard = parseAIResult(result);
+
+                if (hazard.level === 'clear') {
+                    state.aiHazard = null;
+                    return;
+                }
+
+                // Persist for 5s (danger) or 4s (warning/info) so loop keeps alerting
+                const ttl = hazard.level === 'danger' ? 5000 : 4000;
+                state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+
+                // Immediate alert on fresh detection
+                if (hazard.level === 'danger') {
+                    speakAlert(hazard.key, hazard.speak);
+                    vibrateAlert('danger');
+                    playAlertSound('ahead', 'danger');
+                } else if (hazard.level === 'warning') {
+                    speakAlert(hazard.key, hazard.speak);
+                    vibrateAlert('warning');
+                    playAlertSound('ahead', 'warning');
+                } else if (hazard.level === 'info' && hazard.speak) {
+                    speakAlert(hazard.key, hazard.speak);
+                }
+
+                // Re-scan sooner if hazard found (keep watching until clear)
+                if (hazard.level !== 'info') {
+                    state.lastAIScan = Date.now() - (CONFIG.AI_SCAN_INTERVAL - 1000);
                 }
             });
         }
-        
-        // UPDATE UI AND ALERTS based on local detection
+
+        // UPDATE UI AND ALERTS
         if (!state.isPaused) {
             if (highestThreat === 'danger' && mostDangerous) {
-                // IMMEDIATE DANGER
-                const displayName = getDisplayName(mostDangerous);
-                updateUI('danger', '!', `STOP! ${displayName.toUpperCase()}!`, `Very close ${mostDangerous.position}`);
+                const label = mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase();
+                const detail = mostDangerous.uiDetail || `Very close ${mostDangerous.position}`;
+                updateUI('danger', '!', `STOP! ${label}!`, detail);
                 updateDirections(mostDangerous.position, 'danger');
-                
                 playAlertSound(mostDangerous.position, 'danger');
                 vibrateAlert('danger');
-                
-                const escapeDir = mostDangerous.position === 'left' ? 'right' : 
-                                  mostDangerous.position === 'right' ? 'left' : 'back';
-                speakAlert(`danger_${mostDangerous.name}`, `Stop! ${displayName}! Go ${escapeDir}!`);
-                
+                if (!mostDangerous.fromAI) {
+                    const displayName = getDisplayName(mostDangerous);
+                    const escapeDir = mostDangerous.position === 'left' ? 'right' :
+                                      mostDangerous.position === 'right' ? 'left' : 'back';
+                    speakAlert(`danger_${mostDangerous.name}`, `Stop! ${displayName}! Go ${escapeDir}!`);
+                }
+
             } else if (highestThreat === 'warning' && mostDangerous) {
-                // WARNING
-                const displayName = getDisplayName(mostDangerous);
-                updateUI('warning', '!', `${displayName} ahead`, `About ${mostDangerous.distance.toFixed(1)} meters ${mostDangerous.position}`);
+                const label = mostDangerous.displayLabel || getDisplayName(mostDangerous);
+                const detail = mostDangerous.uiDetail || `About ${mostDangerous.distance.toFixed(1)} meters ${mostDangerous.position}`;
+                updateUI('warning', '!', `${label} ahead`, detail);
                 updateDirections(mostDangerous.position, 'warning');
-                
                 playAlertSound(mostDangerous.position, 'warning');
                 vibrateAlert('warning');
-                
-                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${mostDangerous.position}`);
-                
+                if (!mostDangerous.fromAI) {
+                    const displayName = getDisplayName(mostDangerous);
+                    speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${mostDangerous.position}`);
+                }
+
             } else {
-                // SAFE
                 updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
                 updateDirections(null, 'safe');
             }
         }
-        
+
         state.currentStatus = highestThreat;
         state.currentObstacle = mostDangerous;
-        
-        // Continue loop
+
         setTimeout(protectionLoop, CONFIG.LOCAL_SCAN_INTERVAL);
     }
     
