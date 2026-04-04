@@ -326,16 +326,16 @@
             
             <div class="control-bar">
                 <button class="ctrl-btn tall" id="btnDescribe">
-                    <span class="icon">D</span>
-                    <span>Describe</span>
+                    <span class="icon">?</span>
+                    <span>What's Around</span>
                 </button>
                 <button class="ctrl-btn mic" id="btnMic">
                     <span class="icon">M</span>
                     <span>Speak</span>
                 </button>
-                <button class="ctrl-btn tall" id="btnScan">
-                    <span class="icon">S</span>
-                    <span>Scan</span>
+                <button class="ctrl-btn tall" id="btnSafe">
+                    <span class="icon">&#10003;</span>
+                    <span>Is It Safe</span>
                 </button>
             </div>
         </div>
@@ -385,7 +385,7 @@
         AWARENESS_ZONE: 4.0,   // < 4m = awareness
         
         // Timing
-        AI_SCAN_INTERVAL: 1000,      // AI scan every 1 second (sonnet quality justifies frequency)
+        AI_SCAN_INTERVAL: 5000,      // AI scan every 5s — prevents overlapping requests and reduces noise
         DEPTH_SCAN_INTERVAL: 600,    // depth model every 600ms (local, no API)
         LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
         VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
@@ -394,11 +394,11 @@
         // Confidence threshold for naming objects
         HIGH_CONFIDENCE: 0.7,        // Must be >70% confident to name the object
         
-        // Objects that are dangerous
+        // Objects that matter for navigation
         CRITICAL: ["car", "bus", "truck", "motorcycle", "bicycle", "train"],
-        OBSTACLES: ["person", "dog", "chair", "bench", "couch", "bed", "dining table", 
+        OBSTACLES: ["person", "dog", "chair", "bench", "couch", "bed", "dining table",
                     "toilet", "refrigerator", "potted plant", "suitcase", "backpack",
-                    "fire hydrant", "stop sign", "parking meter", "bicycle"]
+                    "fire hydrant", "stop sign", "parking meter", "bicycle", "skateboard", "sports ball"]
     };
     
     // ========== STATE ==========
@@ -423,13 +423,16 @@
         lastDepthScan: 0,
         
         // Current status
-        currentStatus: 'safe',  // safe, warning, danger
+        currentStatus: 'safe',   // safe, warning, danger
+        lastStatus: 'safe',      // previous loop status — used for change detection
         currentObstacle: null,
-        
-        // Alert tracking (prevent spam)
+
+        // Alert timing
         lastAlerts: {},
         lastVibrate: 0,
         lastVoice: 0,
+        lastAlertSound: 0,       // rate-limits beeping during sustained alerts
+        lastDangerAnnounce: 0,   // re-announce sustained danger every 5s max
         
         // Voice
         recognition: null,
@@ -812,7 +815,7 @@
                     danger: danger,
                     confidence: p.score
                 };
-            }).filter(d => d.confidence > 0.4);
+            }).filter(d => d.confidence > 0.65);
         } catch (e) {
             return [];
         }
@@ -1031,17 +1034,17 @@
         const hist = state.depthHistory;
         if (hist.length < 2) return null;
 
-        // Closest surface in center strip
+        // Absolute distance thresholds (real metres from LiDAR)
         if (c <= 0.3) return { level: 'danger', key: 'lidar_close',
-            label: 'STOP', speak: 'Stop! Obstacle very close!', uiDetail: 'LiDAR: obstacle under 30cm', fromDepth: true };
-        if (c <= 0.7) return { level: 'danger', key: 'lidar_close',
+            label: 'STOP', speak: 'Stop! Obstacle very close!', uiDetail: `LiDAR: ${(c*100).toFixed(0)}cm ahead`, fromDepth: true };
+        if (c <= 0.9) return { level: 'danger', key: 'lidar_close',
             label: 'OBSTACLE CLOSE', speak: 'Stop! Something directly ahead!', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
-        if (c <= 1.5) return { level: 'warning', key: 'lidar_near',
+        if (c <= 1.8) return { level: 'warning', key: 'lidar_near',
             label: 'OBSTACLE AHEAD', speak: 'Obstacle ahead, slow down.', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
 
-        // Approaching check: center getting closer over last 2 readings
+        // Approaching: getting closer by ≥8cm since last reading, within 3m
         const prev = hist[hist.length - 2];
-        if (prev.lidar && c < prev.c - 0.15 && c < 3.0) {
+        if (prev.lidar && c < prev.c - 0.08 && c < 3.0) {
             return { level: 'warning', key: 'lidar_approach',
                 label: 'APPROACHING', speak: 'Something ahead, getting closer.', uiDetail: `LiDAR: approaching ${c.toFixed(1)}m`, fromDepth: true };
         }
@@ -1087,7 +1090,7 @@
         }
     }
 
-    // Transformers.js depth hazard (relative values 0-255, not real metres)
+    // Transformers.js depth hazard (relative values 0–255; higher = closer surface)
     function computeDepthHazard(c, l, r) {
         const hist = state.depthHistory;
         if (hist.length < 2) return null;
@@ -1095,29 +1098,42 @@
         const scene = (c + l + r) / 3;
         if (scene < 1) return null;
 
-        const cR = c / scene;
-        const sideAvg = ((l + r) / 2) / scene;
-        const deviation = Math.abs(cR - sideAvg);
-
-        if (deviation < 0.18) return null; // corridor suppression
-
         const prev = hist[hist.length - 2];
         const prevScene = (prev.c + prev.l + prev.r) / 3;
-        if (prevScene < 1) return null;
-        const prevDeviation = Math.abs((prev.c / prevScene) - ((prev.l + prev.r) / 2 / prevScene));
-        const growing = deviation > prevDeviation + 0.02;
+        const approaching = prevScene > 1 && scene > prevScene * 1.04; // scene ~4% closer
 
-        const urgency = deviation > 0.45 ? 'danger' : 'warning';
-        if (urgency === 'warning' && !growing) return null;
+        // ── ABSOLUTE DEPTH (catches walls where all zones are uniformly close) ──────
+        // Thresholds tuned for Depth-Anything-small: 200+ ≈ <0.5m, 155+ ≈ <1.5m
+        if (scene > 200) {
+            return { level: 'danger', key: 'depth_close',
+                label: 'OBSTACLE CLOSE', speak: 'Stop! Something very close!',
+                uiDetail: 'Very close surface ahead', fromDepth: true };
+        }
+        if (scene > 155 && (approaching || scene > 175)) {
+            return { level: 'warning', key: 'depth_near',
+                label: 'OBSTACLE AHEAD', speak: 'Obstacle ahead, slow down.',
+                uiDetail: 'Close obstacle ahead', fromDepth: true };
+        }
 
-        return {
-            level: urgency,
-            key: 'depth_wall',
-            label: urgency === 'danger' ? 'OBSTACLE CLOSE' : 'OBSTACLE AHEAD',
-            speak: urgency === 'danger' ? 'Stop! Something directly ahead!' : 'Obstacle in path, slow down.',
-            uiDetail: 'Depth sensor: obstacle in path',
-            fromDepth: true
-        };
+        // ── CENTER DEVIATION (catches localised obstacle with clear sides) ──────────
+        const cRatio = c / scene;
+        const sideAvg = ((l + r) / 2) / scene;
+        const deviation = cRatio - sideAvg;  // positive = center is closer than sides
+
+        if (deviation < 0.10) return null;   // reduced from 0.18 — less corridor suppression
+
+        if (deviation > 0.40) {
+            return { level: 'danger', key: 'depth_center',
+                label: 'OBSTACLE CLOSE', speak: 'Stop! Something directly ahead!',
+                uiDetail: 'Obstacle directly ahead', fromDepth: true };
+        }
+        if (deviation > 0.22) {
+            return { level: 'warning', key: 'depth_approach',
+                label: 'OBSTACLE AHEAD', speak: 'Obstacle in path, slow down.',
+                uiDetail: 'Obstacle in path', fromDepth: true };
+        }
+
+        return null;
     }
 
     // ========== MAIN PROTECTION LOOP ==========
@@ -1240,19 +1256,28 @@
         }
 
         // UPDATE UI AND ALERTS
+        // Speech/sound only fires on status change, or re-announces sustained danger every 5s
+        const statusChanged = highestThreat !== state.lastStatus;
+        const sustainedDanger = highestThreat === 'danger' && now - state.lastDangerAnnounce > 5000;
+        const shouldSound = statusChanged || now - state.lastAlertSound > 2000;
+
         if (!state.isPaused) {
             if (highestThreat === 'danger' && mostDangerous) {
                 const label = mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase();
                 const detail = mostDangerous.uiDetail || `Very close ${mostDangerous.position}`;
                 updateUI('danger', '!', `STOP! ${label}!`, detail);
                 updateDirections(mostDangerous.position, 'danger');
-                playAlertSound(mostDangerous.position, 'danger');
-                vibrateAlert('danger');
-                if (!mostDangerous.fromAI) {
+                if (shouldSound) {
+                    playAlertSound(mostDangerous.position, 'danger');
+                    vibrateAlert('danger');
+                    state.lastAlertSound = now;
+                }
+                if ((statusChanged || sustainedDanger) && !mostDangerous.fromAI) {
                     const displayName = getDisplayName(mostDangerous);
                     const escapeDir = mostDangerous.position === 'left' ? 'right' :
                                       mostDangerous.position === 'right' ? 'left' : 'back';
                     speakAlert(`danger_${mostDangerous.name}`, `Stop! ${displayName}! Go ${escapeDir}!`);
+                    state.lastDangerAnnounce = now;
                 }
 
             } else if (highestThreat === 'warning' && mostDangerous) {
@@ -1260,9 +1285,12 @@
                 const detail = mostDangerous.uiDetail || `About ${mostDangerous.distance.toFixed(1)} meters ${mostDangerous.position}`;
                 updateUI('warning', '!', `${label} ahead`, detail);
                 updateDirections(mostDangerous.position, 'warning');
-                playAlertSound(mostDangerous.position, 'warning');
-                vibrateAlert('warning');
-                if (!mostDangerous.fromAI) {
+                if (statusChanged && shouldSound) {
+                    playAlertSound(mostDangerous.position, 'warning');
+                    vibrateAlert('warning');
+                    state.lastAlertSound = now;
+                }
+                if (statusChanged && !mostDangerous.fromAI) {
                     const displayName = getDisplayName(mostDangerous);
                     speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${mostDangerous.position}`);
                 }
@@ -1270,9 +1298,11 @@
             } else {
                 updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
                 updateDirections(null, 'safe');
+                state.lastDangerAnnounce = 0;  // reset so next danger re-announces immediately
             }
         }
 
+        state.lastStatus = state.currentStatus;  // capture BEFORE updating currentStatus
         state.currentStatus = highestThreat;
         state.currentObstacle = mostDangerous;
 
@@ -1413,7 +1443,7 @@
         // Buttons
         document.getElementById('btnDescribe').addEventListener('click', () => { unlockAudio(); describeArea(); });
         document.getElementById('btnMic').addEventListener('click', () => { unlockAudio(); startListening(); });
-        document.getElementById('btnScan').addEventListener('click', () => { unlockAudio(); triggerAIScan(); });
+        document.getElementById('btnSafe').addEventListener('click', () => { unlockAudio(); checkSafety(); });
     }
     
     // ========== HELP ==========
