@@ -299,7 +299,7 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 10</div>
+    <div class="version-tag" id="versionTag">build 11</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -407,7 +407,8 @@
         isListening: false,
         
         // Audio
-        audioCtx: null
+        audioCtx: null,
+        audioUnlocked: false
     };
     
     // ========== AUDIO ==========
@@ -424,7 +425,23 @@
     
     function resumeAudio() {
         if (state.audioCtx?.state === 'suspended') {
-            state.audioCtx.resume();
+            state.audioCtx.resume().catch(() => {});
+        }
+    }
+
+    // iOS Safari locks AudioContext and speechSynthesis until a user gesture.
+    // Call this from every tap/click handler to ensure audio works.
+    function unlockAudio() {
+        resumeAudio();
+        if (!state.audioUnlocked) {
+            try {
+                // Prime speechSynthesis with a zero-volume utterance
+                const primer = new SpeechSynthesisUtterance(' ');
+                primer.volume = 0;
+                primer.rate = 10;
+                speechSynthesis.speak(primer);
+            } catch (e) {}
+            state.audioUnlocked = true;
         }
     }
     
@@ -1227,6 +1244,7 @@
         let touchStart = { x: 0, y: 0, time: 0 };
         
         area.addEventListener('touchstart', e => {
+            unlockAudio();
             touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
         }, { passive: true });
         
@@ -1256,9 +1274,9 @@
         }, { passive: true });
         
         // Buttons
-        document.getElementById('btnDescribe').addEventListener('click', describeArea);
-        document.getElementById('btnMic').addEventListener('click', startListening);
-        document.getElementById('btnScan').addEventListener('click', triggerAIScan);
+        document.getElementById('btnDescribe').addEventListener('click', () => { unlockAudio(); describeArea(); });
+        document.getElementById('btnMic').addEventListener('click', () => { unlockAudio(); startListening(); });
+        document.getElementById('btnScan').addEventListener('click', () => { unlockAudio(); triggerAIScan(); });
     }
     
     // ========== HELP ==========
@@ -1269,6 +1287,7 @@
 
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
+        unlockAudio();
         speak('GuideDog active. I will warn you about obstacles automatically.', true);
         state.isRunning = true;
         state.isPaused = false;
@@ -1288,6 +1307,7 @@
         const privacyNotice = document.getElementById('privacyNotice');
         const privacyAccept = document.getElementById('privacyAccept');
         privacyAccept.addEventListener('click', () => {
+            unlockAudio();
             privacyNotice.style.display = 'none';
         });
 
@@ -1329,7 +1349,8 @@
             privacyNotice.style.display = 'flex';
             privacyAccept.addEventListener('click', showHelp, { once: true });
         } else {
-            speak('GuideDog active. I will warn you about obstacles.', true);
+            // Returning user — start silently (no user gesture yet, audio locked on iOS)
+            // First touch on the screen will call unlockAudio() via touchstart handler
             state.isRunning = true;
             protectionLoop();
         }
