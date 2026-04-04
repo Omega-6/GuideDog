@@ -1,4 +1,4 @@
-const CACHE = 'guidedog-v2';      // bumped — forces old bg-v6 / guidedog-v1 to clear
+const CACHE = 'guidedog-v3';      // bumped — forces guidedog-v2 to clear (build 12: module-script depth model)
 const CDN_CACHE = 'guidedog-cdn-v1';
 
 const APP_SHELL = ['/GuideDog/', '/GuideDog/index.html', '/GuideDog/manifest.json'];
