@@ -840,27 +840,38 @@
     
     // ========== DEPTH ESTIMATION (local, no API — detects walls/floors/doors) ==========
     async function initDepthModel() {
-        try {
-            // Dynamically import Transformers.js — only runs once, model is cached by browser
-            const { pipeline, env } = await import(
-                'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js'
-            );
-            env.allowLocalModels = false;
+        const badge = document.getElementById('aiBadge');
+        // Show status immediately — before any async work
+        if (badge) badge.textContent = 'Loading depth model…';
 
-            const badge = document.getElementById('aiBadge');
-            if (badge) badge.textContent = 'Loading depth model…';
+        try {
+            // Dynamic import — tries jsdelivr ESM, falls back to esm.sh
+            let mod;
+            try {
+                mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+            } catch (e1) {
+                console.warn('jsdelivr import failed, trying esm.sh…', e1.message);
+                mod = await import('https://esm.sh/@xenova/transformers@2.17.2');
+            }
+
+            const { pipeline, env } = mod;
+            if (!pipeline) throw new Error('pipeline not found in module');
+
+            env.allowLocalModels = false;
+            if (badge) badge.textContent = 'Downloading depth model…';
 
             state.depthPipeline = await pipeline(
                 'depth-estimation',
                 'Xenova/depth-anything-small-hf',
-                { quantized: true }  // ~24MB quantized model
+                { quantized: true }  // ~24MB, cached by browser after first load
             );
 
             if (badge) badge.textContent = 'AI + Depth Active';
             console.log('Depth model ready');
         } catch (e) {
-            console.warn('Depth model unavailable:', e);
-            // App works fine — AI cloud scans still detect walls
+            console.error('Depth model failed:', e.message || e);
+            if (badge) badge.textContent = 'AI Active';  // visible fallback
+            // App works normally — cloud AI still detects walls/stairs
         }
     }
 
