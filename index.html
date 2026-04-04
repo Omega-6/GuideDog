@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; connect-src https://guidedog.kpremks.workers.dev; media-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#000000">
-    <title>BlindGuide</title>
+    <title>GuideDog</title>
     <link rel="manifest" href="manifest.json">
     
     <style>
@@ -253,8 +254,27 @@
         <div class="loading-subtext">Best Works on Mobile Devices</div>
     </div>
     
-    <div class="help" id="help">
-        <div class="help-title">BlindGuide</div>
+    <noscript>
+        <div style="position:fixed;inset:0;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;font-family:sans-serif;font-size:18px;">
+            GuideDog requires JavaScript to run. Please enable JavaScript in your browser.
+        </div>
+    </noscript>
+
+    <div class="help" id="privacyNotice" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
+        <div class="help-title" id="privacyTitle">Privacy Notice</div>
+        <div class="help-item">
+            <div class="help-label">Camera Images Sent to Cloud</div>
+            <div class="help-desc">Every 3 seconds, GuideDog sends a photo from your camera to a cloud AI service (OpenAI and Anthropic) for advanced hazard detection (stairs, doors, wet floors). These images are processed in real time. Local object detection runs entirely on your device. By tapping Start, you consent to this image upload.</div>
+        </div>
+        <div class="help-item">
+            <div class="help-label">No Account Required</div>
+            <div class="help-desc">No personal data is collected. Images are not stored after analysis. You can use voice commands or the Scan button to trigger cloud analysis on demand instead.</div>
+        </div>
+        <button class="help-close" id="privacyAccept">I Understand — Continue</button>
+    </div>
+
+    <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <div class="help-title" id="helpTitle">GuideDog</div>
         
         <div class="help-item">
             <div class="help-label">AUTOMATIC PROTECTION</div>
@@ -289,7 +309,7 @@
             </div>
             
             <div class="alert-area" id="alertArea">
-                <div class="alert-box safe" id="alertBox">
+                <div class="alert-box safe" id="alertBox" role="alert" aria-live="assertive" aria-atomic="true">
                     <div class="alert-icon" id="alertIcon">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
@@ -319,8 +339,12 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
+            integrity="sha384-vE8hbVJ4lezako5rlvE7bY0BVzWlFhZncPlckrqNwcUQpVtgbENTgZ8TBbnPjZre"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
+            integrity="sha384-7qLdgfEQyO9ZQi9ArRHigK+IBto4XPk468jAqc+fnsXaZIcMAhQeLwzggRK7aESl"
+            crossorigin="anonymous"></script>
     
     <script>
     // ========== CONFIG ==========
@@ -381,7 +405,12 @@
     function initAudio() {
         try {
             state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        } catch (e) {}
+        } catch (e) {
+            console.warn('Web Audio API unavailable:', e);
+            // Audio alerts will be silent; voice and vibration still work
+            const banner = document.getElementById('aiBadge');
+            if (banner) banner.textContent = 'Audio Unavailable';
+        }
     }
     
     function resumeAudio() {
@@ -398,22 +427,31 @@
             const osc = state.audioCtx.createOscillator();
             const gain = state.audioCtx.createGain();
             const panner = state.audioCtx.createStereoPanner();
-            
+
             osc.frequency.value = frequency;
             osc.type = 'sine';
-            
+
             gain.gain.setValueAtTime(volume, state.audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, state.audioCtx.currentTime + duration);
-            
+
             panner.pan.value = Math.max(-1, Math.min(1, pan));
-            
+
             osc.connect(gain);
             gain.connect(panner);
             panner.connect(state.audioCtx.destination);
-            
+
             osc.start();
             osc.stop(state.audioCtx.currentTime + duration);
-        } catch (e) {}
+
+            // Disconnect nodes after playback to prevent memory leak
+            osc.onended = () => {
+                osc.disconnect();
+                gain.disconnect();
+                panner.disconnect();
+            };
+        } catch (e) {
+            console.warn('playBeep error:', e);
+        }
     }
     
     // Alert sounds based on urgency
@@ -634,18 +672,12 @@
             canvas.getContext('2d').drawImage(state.video, 0, 0, 640, 480);
             const imageData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
             
-            // Try both providers, use first response
-            const results = await Promise.allSettled([
+            // Race both providers — use whichever responds first
+            const result = await Promise.any([
                 fetchAI(imageData, 'openai'),
                 fetchAI(imageData, 'anthropic')
-            ]);
-            
-            for (const r of results) {
-                if (r.status === 'fulfilled' && r.value) {
-                    return r.value;
-                }
-            }
-            return null;
+            ]).catch(() => null);
+            return result || null;
         } catch (e) {
             console.error('AI error:', e);
             return null;
@@ -674,10 +706,12 @@
         try {
             const predictions = await state.model.detect(state.video);
             
+            const vw = state.video.videoWidth || 1;
+            const vh = state.video.videoHeight || 1;
             return predictions.map(p => {
-                const cx = (p.bbox[0] + p.bbox[2] / 2) / state.video.videoWidth;
-                const cy = (p.bbox[1] + p.bbox[3] / 2) / state.video.videoHeight;
-                const size = Math.max(p.bbox[2], p.bbox[3]) / Math.max(state.video.videoWidth, state.video.videoHeight);
+                const cx = (p.bbox[0] + p.bbox[2] / 2) / vw;
+                const cy = (p.bbox[1] + p.bbox[3] / 2) / vh;
+                const size = Math.max(p.bbox[2], p.bbox[3]) / Math.max(vw, vh);
                 
                 // Position
                 let position = 'ahead';
@@ -968,12 +1002,12 @@
     // ========== HELP ==========
     function showHelp() {
         document.getElementById('help').classList.add('visible');
-        speak('BlindGuide automatically warns you about obstacles, stairs, walls, and doors. You don\'t need to do anything. Tap the button to start.', true);
+        speak('GuideDog automatically warns you about obstacles, stairs, walls, and doors. You don\'t need to do anything. Tap the button to start.', true);
     }
-    
+
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
-        speak('BlindGuide active. I will warn you about obstacles automatically.', true);
+        speak('GuideDog active. I will warn you about obstacles automatically.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
@@ -985,19 +1019,29 @@
         initAudio();
         initSpeechRecognition();
         setupGestures();
-        
+
         document.getElementById('helpClose').addEventListener('click', hideHelp);
-        
-        document.getElementById('loadingText').textContent = 'Loading, please wait a moment';
-        
+
+        // Privacy notice — shown once before the help screen
+        const privacyNotice = document.getElementById('privacyNotice');
+        const privacyAccept = document.getElementById('privacyAccept');
+        privacyAccept.addEventListener('click', () => {
+            privacyNotice.style.display = 'none';
+        });
+
+        document.getElementById('loadingText').textContent = 'Loading detection model…';
+
         try {
             state.model = await cocoSsd.load();
         } catch (e) {
-            console.error('Model error:', e);
+            console.error('Model load error:', e);
+            document.getElementById('loadingText').textContent = 'Failed to load model. Please reload the page.';
+            speak('Error loading detection model. Please reload the page.', true);
+            return;
         }
-        
-        document.getElementById('loadingText').textContent = 'Starting camera...';
-        
+
+        document.getElementById('loadingText').textContent = 'Starting camera…';
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
@@ -1006,18 +1050,21 @@
             state.video.srcObject = stream;
             await state.video.play();
         } catch (e) {
-            speak('Camera required. Please allow camera access.', true);
+            document.getElementById('loadingText').textContent = 'Camera access required.';
+            speak('Camera access is required. Please allow camera access and reload the page.', true);
             return;
         }
-        
+
         document.getElementById('loading').classList.add('hidden');
-        
-        // First time help
-        if (!localStorage.getItem('blindguide_v7')) {
-            localStorage.setItem('blindguide_v7', 'true');
-            showHelp();
+
+        const isFirstRun = !localStorage.getItem('guidedog_v1');
+        if (isFirstRun) {
+            localStorage.setItem('guidedog_v1', 'true');
+            // Show privacy notice first, then help
+            privacyNotice.style.display = 'flex';
+            privacyAccept.addEventListener('click', showHelp, { once: true });
         } else {
-            speak('BlindGuide active. I will warn you about obstacles.', true);
+            speak('GuideDog active. I will warn you about obstacles.', true);
             state.isRunning = true;
             protectionLoop();
         }
@@ -1028,8 +1075,10 @@
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             state.isRunning = false;
-        } else {
+        } else if (state.model && state.video?.srcObject) {
+            // Only restart if fully initialised (model loaded, camera running)
             state.isRunning = true;
+            protectionLoop();
         }
     });
     
