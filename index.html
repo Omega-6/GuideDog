@@ -244,6 +244,7 @@
         .help-label { font-size: 16px; font-weight: 700; color: #48f; }
         .help-desc { font-size: 14px; color: #aaa; margin-top: 5px; }
         .help-close { margin-top: 20px; padding: 20px; background: #48f; border: none; border-radius: 15px; color: #fff; font-size: 18px; font-weight: 700; }
+        .version-tag { position: fixed; bottom: max(6px, env(safe-area-inset-bottom)); right: 8px; font-size: 10px; color: rgba(255,255,255,0.3); z-index: 5; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -298,6 +299,8 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
+    <div class="version-tag" id="versionTag">2026-04-04 · ca53e45</div>
+
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
         
