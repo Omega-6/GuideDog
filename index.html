@@ -299,7 +299,7 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 13</div>
+    <div class="version-tag" id="versionTag">build 14</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -722,14 +722,14 @@
         try {
             const canvas = document.createElement('canvas');
             const isDetailed = mode === 'detailed';
-            canvas.width = isDetailed ? Math.min(state.video.videoWidth || 640, 1280) : 640;
-            canvas.height = isDetailed ? Math.min(state.video.videoHeight || 480, 960) : 480;
+            canvas.width = isDetailed ? Math.min(state.video.videoWidth || 960, 1280) : Math.min(state.video.videoWidth || 960, 960);
+            canvas.height = isDetailed ? Math.min(state.video.videoHeight || 720, 960) : Math.min(state.video.videoHeight || 720, 720);
             const ctx = canvas.getContext('2d');
             // Fill black first — prevents transparent canvas falling back to PNG on iOS
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(state.video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/jpeg', isDetailed ? 0.85 : 0.6).split(',')[1];
+            const imageData = canvas.toDataURL('image/jpeg', isDetailed ? 0.9 : 0.75).split(',')[1];
 
             // Pass what local model already found so AI focuses on what it missed
             const context = state.localDetections
@@ -1364,7 +1364,7 @@
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
                 audio: false
             });
             state.video.srcObject = stream;
