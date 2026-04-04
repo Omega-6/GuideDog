@@ -741,7 +741,7 @@
             const context = state.localDetections
                 .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
                 .slice(0, 5)
-                .map(d => `${d.name} ${d.distance.toFixed(1)}m ${d.position}`)
+                .map(d => `${d.name} ${(d.distance * 3.28084).toFixed(0)}ft ${d.position}`)
                 .join(', ');
 
             // Race both providers — use whichever responds first
@@ -1035,18 +1035,19 @@
         if (hist.length < 2) return null;
 
         // Absolute distance thresholds (real metres from LiDAR)
+        const ft = (c * 3.28084).toFixed(1);
         if (c <= 0.4) return { level: 'danger', key: 'lidar_critical',
-            label: 'STOP', speak: 'Stop now', uiDetail: `LiDAR: ${(c*100).toFixed(0)}cm ahead`, fromDepth: true };
+            label: 'STOP', speak: 'Stop now', uiDetail: `${ft} ft ahead`, fromDepth: true };
         if (c <= 1.0) return { level: 'danger', key: 'lidar_close',
-            label: 'OBSTACLE CLOSE', speak: 'Stop', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+            label: 'OBSTACLE CLOSE', speak: 'Stop', uiDetail: `${ft} ft ahead`, fromDepth: true };
         if (c <= 2.0) return { level: 'warning', key: 'lidar_near',
-            label: 'OBSTACLE AHEAD', speak: 'Slow', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+            label: 'OBSTACLE AHEAD', speak: 'Slow', uiDetail: `${ft} ft ahead`, fromDepth: true };
 
         // Approaching: getting closer by ≥8cm since last reading, within 3m
         const prev = hist[hist.length - 2];
         if (prev.lidar && c < prev.c - 0.08 && c < 3.0) {
             return { level: 'warning', key: 'lidar_approach',
-                label: 'APPROACHING', speak: 'Ahead', uiDetail: `LiDAR: approaching ${c.toFixed(1)}m`, fromDepth: true };
+                label: 'APPROACHING', speak: 'Ahead', uiDetail: `Approaching ${ft} ft`, fromDepth: true };
         }
 
         return null;
@@ -1282,7 +1283,7 @@
 
             } else if (highestThreat === 'warning' && mostDangerous) {
                 const label = mostDangerous.displayLabel || getDisplayName(mostDangerous);
-                const detail = mostDangerous.uiDetail || `About ${mostDangerous.distance.toFixed(1)} meters ${mostDangerous.position}`;
+                const detail = mostDangerous.uiDetail || `About ${(mostDangerous.distance * 3.28084).toFixed(1)} ft ${mostDangerous.position}`;
                 updateUI('warning', '!', `${label} ahead`, detail);
                 updateDirections(mostDangerous.position, 'warning');
                 if (statusChanged && shouldSound) {
@@ -1372,7 +1373,7 @@
             const obstacle = state.localDetections.find(d => d.inPath);
             if (obstacle) {
                 const displayName = getDisplayName(obstacle);
-                speak(`${displayName} in your path, ${obstacle.distance.toFixed(1)} meters ahead`, true);
+                speak(`${displayName} in your path, ${(obstacle.distance * 3.28084).toFixed(0)} feet ahead`, true);
             } else {
                 speak('Path appears clear', true);
             }
@@ -1383,7 +1384,7 @@
         const items = state.localDetections.filter(d => d.position === dir);
         if (items.length > 0) {
             const displayName = getDisplayName(items[0]);
-            speak(`${displayName} on your ${dir}, about ${items[0].distance.toFixed(1)} meters`, true);
+            speak(`${displayName} on your ${dir}, about ${(items[0].distance * 3.28084).toFixed(0)} feet`, true);
         } else {
             speak(`Nothing detected on your ${dir}`, true);
         }
