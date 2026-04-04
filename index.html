@@ -842,7 +842,7 @@
         // DANGER: stairs / drop-offs (falling hazard — highest priority)
         if (/stair|step\s*down|steps\s*down|drop.?off|ledge|descend|going\s*down/.test(lower)) {
             return { level: 'danger', key: 'stairs', label: 'STAIRS', uiDetail: 'Stop — stairs or drop-off',
-                speak: 'Warning! Stairs or drop ahead. Stop!' };
+                speak: 'Stairs ahead. Stop.' };
         }
 
         // DANGER: moving vehicles / cyclists
@@ -1035,18 +1035,18 @@
         if (hist.length < 2) return null;
 
         // Absolute distance thresholds (real metres from LiDAR)
-        if (c <= 0.3) return { level: 'danger', key: 'lidar_close',
-            label: 'STOP', speak: 'Stop! Obstacle very close!', uiDetail: `LiDAR: ${(c*100).toFixed(0)}cm ahead`, fromDepth: true };
-        if (c <= 0.9) return { level: 'danger', key: 'lidar_close',
-            label: 'OBSTACLE CLOSE', speak: 'Stop! Something directly ahead!', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
-        if (c <= 1.8) return { level: 'warning', key: 'lidar_near',
-            label: 'OBSTACLE AHEAD', speak: 'Obstacle ahead, slow down.', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+        if (c <= 0.4) return { level: 'danger', key: 'lidar_critical',
+            label: 'STOP', speak: 'Stop now', uiDetail: `LiDAR: ${(c*100).toFixed(0)}cm ahead`, fromDepth: true };
+        if (c <= 1.0) return { level: 'danger', key: 'lidar_close',
+            label: 'OBSTACLE CLOSE', speak: 'Stop', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
+        if (c <= 2.0) return { level: 'warning', key: 'lidar_near',
+            label: 'OBSTACLE AHEAD', speak: 'Slow', uiDetail: `LiDAR: ${c.toFixed(1)}m ahead`, fromDepth: true };
 
         // Approaching: getting closer by ≥8cm since last reading, within 3m
         const prev = hist[hist.length - 2];
         if (prev.lidar && c < prev.c - 0.08 && c < 3.0) {
             return { level: 'warning', key: 'lidar_approach',
-                label: 'APPROACHING', speak: 'Something ahead, getting closer.', uiDetail: `LiDAR: approaching ${c.toFixed(1)}m`, fromDepth: true };
+                label: 'APPROACHING', speak: 'Ahead', uiDetail: `LiDAR: approaching ${c.toFixed(1)}m`, fromDepth: true };
         }
 
         return null;
@@ -1106,12 +1106,12 @@
         // Thresholds tuned for Depth-Anything-small: 200+ ≈ <0.5m, 155+ ≈ <1.5m
         if (scene > 200) {
             return { level: 'danger', key: 'depth_close',
-                label: 'OBSTACLE CLOSE', speak: 'Stop! Something very close!',
+                label: 'OBSTACLE CLOSE', speak: 'Stop',
                 uiDetail: 'Very close surface ahead', fromDepth: true };
         }
         if (scene > 155 && (approaching || scene > 175)) {
             return { level: 'warning', key: 'depth_near',
-                label: 'OBSTACLE AHEAD', speak: 'Obstacle ahead, slow down.',
+                label: 'OBSTACLE AHEAD', speak: 'Slow',
                 uiDetail: 'Close obstacle ahead', fromDepth: true };
         }
 
@@ -1124,12 +1124,12 @@
 
         if (deviation > 0.40) {
             return { level: 'danger', key: 'depth_center',
-                label: 'OBSTACLE CLOSE', speak: 'Stop! Something directly ahead!',
+                label: 'OBSTACLE CLOSE', speak: 'Stop',
                 uiDetail: 'Obstacle directly ahead', fromDepth: true };
         }
         if (deviation > 0.22) {
             return { level: 'warning', key: 'depth_approach',
-                label: 'OBSTACLE AHEAD', speak: 'Obstacle in path, slow down.',
+                label: 'OBSTACLE AHEAD', speak: 'Slow',
                 uiDetail: 'Obstacle in path', fromDepth: true };
         }
 
@@ -1276,7 +1276,7 @@
                     const displayName = getDisplayName(mostDangerous);
                     const escapeDir = mostDangerous.position === 'left' ? 'right' :
                                       mostDangerous.position === 'right' ? 'left' : 'back';
-                    speakAlert(`danger_${mostDangerous.name}`, `Stop! ${displayName}! Go ${escapeDir}!`);
+                    speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`);
                     state.lastDangerAnnounce = now;
                 }
 
