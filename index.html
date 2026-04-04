@@ -357,6 +357,7 @@
         
         // Timing
         AI_SCAN_INTERVAL: 1500,      // AI scan every 1.5 seconds (haiku is fast)
+        DEPTH_SCAN_INTERVAL: 600,    // depth model every 600ms (local, no API)
         LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
         VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
         VIBRATE_COOLDOWN: 500,
@@ -383,6 +384,11 @@
         aiResult: null,
         lastAIScan: 0,
         aiHazard: null,          // persists AI-detected hazard across loop iterations
+
+        // Depth estimation (local MiDaS model)
+        depthPipeline: null,
+        depthHistory: [],        // rolling window of {c,l,r} readings
+        lastDepthScan: 0,
         
         // Current status
         currentStatus: 'safe',  // safe, warning, danger
@@ -832,6 +838,119 @@
             speak: text.length < 80 ? text : '' };
     }
     
+    // ========== DEPTH ESTIMATION (local, no API — detects walls/floors/doors) ==========
+    async function initDepthModel() {
+        try {
+            // Dynamically import Transformers.js — only runs once, model is cached by browser
+            const { pipeline, env } = await import(
+                'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js'
+            );
+            env.allowLocalModels = false;
+
+            const badge = document.getElementById('aiBadge');
+            if (badge) badge.textContent = 'Loading depth model…';
+
+            state.depthPipeline = await pipeline(
+                'depth-estimation',
+                'Xenova/depth-anything-small-hf',
+                { quantized: true }  // ~24MB quantized model
+            );
+
+            if (badge) badge.textContent = 'AI + Depth Active';
+            console.log('Depth model ready');
+        } catch (e) {
+            console.warn('Depth model unavailable:', e);
+            // App works fine — AI cloud scans still detect walls
+        }
+    }
+
+    async function runDepthDetection() {
+        if (!state.depthPipeline || !state.video || state.video.videoWidth === 0) return null;
+
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            canvas.getContext('2d').drawImage(state.video, 0, 0, 256, 256);
+
+            const { depth } = await state.depthPipeline(canvas.toDataURL('image/jpeg', 0.6));
+            // depth: RawImage (0–255). Convention-agnostic — we only use relative values.
+
+            const data = depth.data;
+            const w = depth.width;
+            const h = depth.height;
+            const ch = depth.channels || 1;
+
+            // Sample three vertical strips (left / center / right)
+            let cSum = 0, cN = 0, lSum = 0, lN = 0, rSum = 0, rN = 0;
+
+            for (let y = Math.floor(h * 0.15); y < Math.floor(h * 0.85); y++) {
+                for (let x = 0; x < w; x++) {
+                    const v = data[(y * w + x) * ch];
+                    const fx = x / w;
+                    if (fx > 0.30 && fx < 0.70) { cSum += v; cN++; }
+                    else if (fx < 0.22)          { lSum += v; lN++; }
+                    else if (fx > 0.78)          { rSum += v; rN++; }
+                }
+            }
+
+            const c = cN > 0 ? cSum / cN : 128;
+            const l = lN > 0 ? lSum / lN : 128;
+            const r = rN > 0 ? rSum / rN : 128;
+
+            state.depthHistory.push({ c, l, r });
+            if (state.depthHistory.length > 4) state.depthHistory.shift();
+
+            return computeDepthHazard(c, l, r);
+        } catch (e) {
+            console.warn('Depth scan error:', e);
+            return null;
+        }
+    }
+
+    function computeDepthHazard(c, l, r) {
+        const hist = state.depthHistory;
+        if (hist.length < 2) return null;
+
+        const scene = (c + l + r) / 3;
+        if (scene < 1) return null;
+
+        // Normalise relative to scene average — removes lighting and distance bias,
+        // and works regardless of whether high=close or high=far in the model output.
+        const cR = c / scene;
+        const sideAvg = ((l + r) / 2) / scene;
+        const deviation = Math.abs(cR - sideAvg);
+
+        // CORRIDOR SUPPRESSION ─────────────────────────────────────────────────
+        // If center depth is similar to sides → normal corridor or room.
+        // Don't spam alerts just because there are walls around you.
+        if (deviation < 0.18) return null;
+
+        // APPROACH CHECK ───────────────────────────────────────────────────────
+        // Only alert if the center is becoming MORE extreme relative to sides
+        // (i.e. you are walking toward the obstacle, not away from it).
+        const prev = hist[hist.length - 2];
+        const prevScene = (prev.c + prev.l + prev.r) / 3;
+        if (prevScene < 1) return null;
+        const prevDeviation = Math.abs((prev.c / prevScene) - ((prev.l + prev.r) / 2 / prevScene));
+        const growing = deviation > prevDeviation + 0.02;
+
+        // Suppress warnings unless actively approaching; allow danger regardless
+        const urgency = deviation > 0.45 ? 'danger' : 'warning';
+        if (urgency === 'warning' && !growing) return null;
+
+        return {
+            level: urgency,
+            key: 'depth_wall',
+            label: urgency === 'danger' ? 'OBSTACLE CLOSE' : 'OBSTACLE AHEAD',
+            speak: urgency === 'danger'
+                ? 'Stop! Something directly ahead!'
+                : 'Obstacle in path, slow down.',
+            uiDetail: 'Depth sensor: obstacle in path',
+            fromDepth: true
+        };
+    }
+
     // ========== MAIN PROTECTION LOOP ==========
     async function protectionLoop() {
         if (!state.isRunning) {
@@ -862,6 +981,27 @@
                     highestThreat = 'warning';
                 }
             }
+        }
+
+        // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
+        if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
+            state.lastDepthScan = now;
+            runDepthDetection().then(hazard => {
+                if (!hazard) return;
+                // Only override current AI hazard if depth is more urgent or there is none
+                if (!state.aiHazard || hazard.level === 'danger' || state.aiHazard.level !== 'danger') {
+                    const ttl = hazard.level === 'danger' ? 5000 : 3500;
+                    state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+                    speakAlert(hazard.key, hazard.speak);
+                    if (hazard.level === 'danger') {
+                        vibrateAlert('danger');
+                        playAlertSound('ahead', 'danger');
+                    } else {
+                        vibrateAlert('warning');
+                        playAlertSound('ahead', 'warning');
+                    }
+                }
+            });
         }
 
         // EXPIRE stale AI hazard
@@ -1161,6 +1301,9 @@
         }
 
         document.getElementById('loading').classList.add('hidden');
+
+        // Start depth model loading in background — non-blocking, app works without it
+        initDepthModel();
 
         const isFirstRun = !localStorage.getItem('guidedog_v1');
         if (isFirstRun) {
