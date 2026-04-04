@@ -299,7 +299,7 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 12</div>
+    <div class="version-tag" id="versionTag">build 13</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -385,7 +385,7 @@
         AWARENESS_ZONE: 4.0,   // < 4m = awareness
         
         // Timing
-        AI_SCAN_INTERVAL: 1500,      // AI scan every 1.5 seconds (haiku is fast)
+        AI_SCAN_INTERVAL: 1000,      // AI scan every 1 second (sonnet quality justifies frequency)
         DEPTH_SCAN_INTERVAL: 600,    // depth model every 600ms (local, no API)
         LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
         VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
