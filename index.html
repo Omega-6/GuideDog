@@ -663,18 +663,29 @@
     }
     
     // ========== AI ANALYSIS ==========
-    async function analyzeWithAI() {
+    // mode: 'background' = fast model, low-res (auto scans)
+    // mode: 'detailed'   = accurate model, high-res (user-triggered)
+    async function analyzeWithAI(mode = 'background') {
         try {
             const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 480;
-            canvas.getContext('2d').drawImage(state.video, 0, 0, 640, 480);
-            const imageData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-            
+            const isDetailed = mode === 'detailed';
+            // Higher res for on-demand scans, smaller for background
+            canvas.width = isDetailed ? Math.min(state.video.videoWidth || 640, 1280) : 640;
+            canvas.height = isDetailed ? Math.min(state.video.videoHeight || 480, 960) : 480;
+            canvas.getContext('2d').drawImage(state.video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/jpeg', isDetailed ? 0.85 : 0.6).split(',')[1];
+
+            // Pass what local model already found so AI focuses on what it missed
+            const context = state.localDetections
+                .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
+                .slice(0, 5)
+                .map(d => `${d.name} ${d.distance.toFixed(1)}m ${d.position}`)
+                .join(', ');
+
             // Race both providers — use whichever responds first
             const result = await Promise.any([
-                fetchAI(imageData, 'openai'),
-                fetchAI(imageData, 'anthropic')
+                fetchAI(imageData, 'openai', mode, context),
+                fetchAI(imageData, 'anthropic', mode, context)
             ]).catch(() => null);
             return result || null;
         } catch (e) {
@@ -682,13 +693,13 @@
             return null;
         }
     }
-    
-    async function fetchAI(imageData, provider) {
+
+    async function fetchAI(imageData, provider, mode = 'background', context = '') {
         try {
             const response = await fetch(CONFIG.WORKER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: imageData, provider })
+                body: JSON.stringify({ image: imageData, provider, mode, context })
             });
             const data = await response.json();
             return data.result || null;
@@ -793,8 +804,8 @@
         if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused) {
             state.lastAIScan = now;
             
-            // Run AI scan in background
-            analyzeWithAI().then(result => {
+            // Run AI scan in background (fast model)
+            analyzeWithAI('background').then(result => {
                 if (result) {
                     state.aiResult = result;
                     const lower = result.toLowerCase();
@@ -895,8 +906,8 @@
     // ========== USER ACTIONS ==========
     async function describeArea() {
         speak('Scanning surroundings...', true);
-        
-        const result = await analyzeWithAI();
+
+        const result = await analyzeWithAI('detailed');
         if (result) {
             speak(result, true);
         } else if (state.localDetections.length > 0) {
@@ -917,8 +928,8 @@
     
     async function checkSafety() {
         speak('Checking safety...', true);
-        
-        const result = await analyzeWithAI();
+
+        const result = await analyzeWithAI('detailed');
         if (result) {
             speak(result, true);
         } else {
@@ -949,8 +960,8 @@
     
     async function triggerAIScan() {
         speak('Scanning surroundings...', true);
-        
-        const result = await analyzeWithAI();
+
+        const result = await analyzeWithAI('detailed');
         if (result) {
             speak(result, true);
         } else {
