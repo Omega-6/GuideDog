@@ -1224,27 +1224,27 @@
         }
 
         // ── UNCALIBRATED FALLBACK (raw 0-255 values) ─────────────────────────────
-        // Thresholds lowered: wall at 4ft reads ~140-160 on most phones.
+        // Wall at 3ft reads ~160-190, at 5ft reads ~120-140, at 8ft+ reads ~80-100.
         const scene = (c + l + r) / 3;
         if (scene < 1) return null;
 
         // Center zone (catches walls head-on)
-        if (c > 180) {
+        if (c > 160) {
             return { level: 'danger', key: 'depth_close',
                 label: 'WALL/OBSTACLE', speak: 'Stop',
-                uiDetail: 'Very close ahead', fromDepth: true };
+                uiDetail: `Very close ahead (${c.toFixed(0)})`, fromDepth: true };
         }
-        if (c > 140) {
+        if (c > 120) {
             return { level: 'warning', key: 'depth_near',
                 label: 'SURFACE AHEAD', speak: 'Slow',
-                uiDetail: 'Surface ahead', fromDepth: true };
+                uiDetail: `Surface ahead (${c.toFixed(0)})`, fromDepth: true };
         }
 
         // Scene average (enclosed spaces)
-        if (scene > 165) {
+        if (scene > 145) {
             return { level: 'danger', key: 'depth_scene',
                 label: 'ENCLOSED', speak: 'Stop',
-                uiDetail: 'Surfaces very close all sides', fromDepth: true };
+                uiDetail: `Close all sides (${scene.toFixed(0)})`, fromDepth: true };
         }
 
         // Center deviation (isolated obstacles)
@@ -1338,14 +1338,15 @@
             const calStr = state.depthCalibration
                 ? `cal:${depthToMeters(depthHist?.c || 0)?.toFixed(1) ?? '?'}m`
                 : 'uncal';
-            dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} | ${rawThreat}→${highestThreat}`;
+            const dhz = state.depthHazard ? state.depthHazard.level[0] : '-';
+            dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} dh:${dhz} | ${rawThreat}→${highestThreat}`;
         }
 
         // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
         if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
             state.lastDepthScan = now;
             runDepthDetection().then(hazard => {
-                if (!hazard) { state.depthHazard = null; return; }
+                if (!hazard) return;  // no hazard — let existing depthHazard expire via TTL
                 const ttl = hazard.level === 'danger' ? 1200 : 900;
                 state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
                 speakAlert(hazard.key, hazard.speak);
