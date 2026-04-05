@@ -553,32 +553,65 @@
     }
     
     // ========== SPEECH ==========
+    // Priority levels: danger > warning > info. Higher priority interrupts lower.
+    // Same priority respects cooldown. Lower priority never interrupts higher.
+    let _currentSpeechPriority = 0;
+    let _speechEndTime = 0;
+
     function speak(text, force = false) {
         if (!text) return;
-        
+
         const now = Date.now();
         if (!force && now - state.lastVoice < CONFIG.VOICE_COOLDOWN) return;
-        
-        // Stop listening while speaking
+
         if (state.isListening) stopListening();
-        
+
         try {
             speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
-            u.rate = 1.0;
+            u.rate = 1.1;
             u.volume = 1.0;
+            u.onend = () => { _currentSpeechPriority = 0; };
             speechSynthesis.speak(u);
             state.lastVoice = now;
+            _currentSpeechPriority = 1;
+            _speechEndTime = now + 2000; // estimate
             console.log('Speaking:', text);
         } catch (e) {}
     }
-    
-    // Speak alert only if not recently said
-    function speakAlert(key, text) {
+
+    // Priority-aware alert speech
+    // priority: 3=danger, 2=warning, 1=info
+    // Danger can always speak (interrupts everything, 2s cooldown per key)
+    // Warning only if nothing higher is playing (3s cooldown per key)
+    // Info only if silent (5s cooldown per key)
+    function speakAlert(key, text, priority = 2) {
         const now = Date.now();
-        if (now - (state.lastAlerts[key] || 0) < 4000) return; // Don't repeat for 4s
+
+        const cooldowns = { 3: 2000, 2: 3000, 1: 5000 };
+        const cooldown = cooldowns[priority] || 3000;
+
+        if (now - (state.lastAlerts[key] || 0) < cooldown) return;
+
+        // Don't let lower priority interrupt higher
+        if (priority < _currentSpeechPriority && now < _speechEndTime) return;
+
         state.lastAlerts[key] = now;
-        speak(text, true);
+
+        if (state.isListening) stopListening();
+
+        try {
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = priority >= 3 ? 1.3 : 1.1;  // danger speaks faster
+            u.volume = 1.0;
+            u.onend = () => { _currentSpeechPriority = 0; };
+            speechSynthesis.speak(u);
+            state.lastVoice = now;
+            _currentSpeechPriority = priority;
+            _speechEndTime = now + (priority >= 3 ? 1500 : 2500);
+            console.log(`Speaking [p${priority}]:`, text);
+        } catch (e) {}
     }
     
     // ========== SPEECH RECOGNITION ==========
@@ -1046,7 +1079,7 @@
                                 const ttl = hazard.level === 'danger' ? 1200 : 900;
                                 if (!state.depthHazard || hazard.level === 'danger') {
                                     state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
-                                    speakAlert(hazard.key, hazard.speak);
+                                    speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
                                     playAlertSound('ahead', hazard.level);
                                     vibrateAlert(hazard.level);
                                 }
@@ -1359,7 +1392,7 @@
         const wallResult = fastWallCheck();
         if (wallResult && !state.depthHazard) {
             state.depthHazard = { ...wallResult, expiry: now + 600 };
-            speakAlert(wallResult.key, wallResult.speak);
+            speakAlert(wallResult.key, wallResult.speak, wallResult.level === 'danger' ? 3 : 2);
             if (wallResult.level === 'danger') {
                 vibrateAlert('danger');
                 playAlertSound('ahead', 'danger');
@@ -1432,7 +1465,7 @@
                 if (!hazard) return;
                 const ttl = hazard.level === 'danger' ? 1200 : 900;
                 state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
-                speakAlert(hazard.key, hazard.speak);
+                speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
                 if (hazard.level === 'danger') {
                     vibrateAlert('danger');
                     playAlertSound('ahead', 'danger');
@@ -1501,15 +1534,15 @@
 
                 // Immediate alert on fresh detection
                 if (hazard.level === 'danger') {
-                    speakAlert(hazard.key, hazard.speak);
+                    speakAlert(hazard.key, hazard.speak, 3);
                     vibrateAlert('danger');
                     playAlertSound('ahead', 'danger');
                 } else if (hazard.level === 'warning') {
-                    speakAlert(hazard.key, hazard.speak);
+                    speakAlert(hazard.key, hazard.speak, 2);
                     vibrateAlert('warning');
                     playAlertSound('ahead', 'warning');
                 } else if (hazard.level === 'info' && hazard.speak) {
-                    speakAlert(hazard.key, hazard.speak);
+                    speakAlert(hazard.key, hazard.speak, 1);
                 }
 
                 // Re-scan sooner if hazard found (keep watching until clear)
@@ -1540,7 +1573,7 @@
             if (!state.isPaused && (statusChanged || sustainedDanger) && mostDangerous && !mostDangerous.fromAI) {
                 const displayName = getDisplayName(mostDangerous);
                 const escapeDir = pos === 'left' ? 'right' : pos === 'right' ? 'left' : 'back';
-                speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`);
+                speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`, 3);
                 state.lastDangerAnnounce = now;
             }
 
@@ -1559,7 +1592,7 @@
             }
             if (!state.isPaused && statusChanged && mostDangerous && !mostDangerous.fromAI) {
                 const displayName = getDisplayName(mostDangerous);
-                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`);
+                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`, 2);
             }
 
         } else {
