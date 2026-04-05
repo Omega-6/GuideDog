@@ -382,12 +382,12 @@
         // Timing
         AI_SCAN_INTERVAL: 5000,      // AI scan every 5s — prevents overlapping requests and reduces noise
         DEPTH_SCAN_INTERVAL: 600,    // depth model every 600ms (local, no API)
-        LOCAL_SCAN_INTERVAL: 300,    // Local detection every 300ms
-        VOICE_COOLDOWN: 2000,        // Don't repeat same alert for 2s
-        VIBRATE_COOLDOWN: 500,
-        
+        LOCAL_SCAN_INTERVAL: 200,    // Local detection every 200ms (was 300)
+        VOICE_COOLDOWN: 1500,        // Don't repeat same alert for 1.5s (was 2s)
+        VIBRATE_COOLDOWN: 400,
+
         // Confidence threshold for naming objects
-        HIGH_CONFIDENCE: 0.7,        // Must be >70% confident to name the object
+        HIGH_CONFIDENCE: 0.65,       // Must be >65% confident to name the object (was 70%)
         
         // Objects that matter for navigation
         CRITICAL: ["car", "bus", "truck", "motorcycle", "bicycle", "train"],
@@ -1173,10 +1173,10 @@
     }
 
     // ========== MAIN PROTECTION LOOP ==========
-    // Temporal smoothing: require 2 consecutive readings at a level before switching.
+    // Temporal smoothing: escalate instantly, require 3 consecutive safe readings to de-escalate.
     // Prevents bouncing between safe/warning/danger from inconsistent COCO-SSD detections.
     let _threatHistory = [];
-    const THREAT_CONFIRM_COUNT = 2;
+    const SAFE_CONFIRM_COUNT = 3;
 
     async function protectionLoop() {
         if (!state.isRunning) {
@@ -1209,24 +1209,18 @@
             }
         }
 
-        // Temporal smoothing: escalate immediately (safety first),
-        // but require 2 consecutive safe readings before de-escalating
+        // Temporal smoothing: escalate instantly, de-escalate only after 3 safe readings.
         _threatHistory.push(rawThreat);
-        if (_threatHistory.length > 4) _threatHistory.shift();
+        if (_threatHistory.length > 5) _threatHistory.shift();
 
         let highestThreat;
-        if (rawThreat === 'danger') {
-            highestThreat = 'danger';  // escalate immediately
-        } else if (rawThreat === 'warning') {
-            highestThreat = (state.currentStatus === 'danger')
-                ? 'danger'  // stay at danger until 2 non-danger readings
-                : 'warning';
-            const recentDanger = _threatHistory.slice(-THREAT_CONFIRM_COUNT).some(t => t === 'danger');
-            if (!recentDanger && rawThreat === 'warning') highestThreat = 'warning';
+        if (rawThreat === 'danger' || rawThreat === 'warning') {
+            highestThreat = rawThreat;  // escalate immediately — no delay
         } else {
-            // Only go to safe if last N readings were all safe
-            const recentNonSafe = _threatHistory.slice(-THREAT_CONFIRM_COUNT).some(t => t !== 'safe');
-            highestThreat = recentNonSafe ? (state.currentStatus || 'safe') : 'safe';
+            // Only go to safe if last 3 readings were ALL safe
+            const recent = _threatHistory.slice(-SAFE_CONFIRM_COUNT);
+            const allSafe = recent.length >= SAFE_CONFIRM_COUNT && recent.every(t => t === 'safe');
+            highestThreat = allSafe ? 'safe' : (state.currentStatus || 'safe');
         }
 
         // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
