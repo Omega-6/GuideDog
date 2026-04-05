@@ -383,7 +383,7 @@
         
         // Timing
         AI_SCAN_INTERVAL: 5000,      // AI scan every 5s — prevents overlapping requests and reduces noise
-        DEPTH_SCAN_INTERVAL: 600,    // depth model every 600ms (local, no API)
+        DEPTH_SCAN_INTERVAL: 400,    // depth model every 400ms (was 600)
         LOCAL_SCAN_INTERVAL: 200,    // Local detection every 200ms (was 300)
         VOICE_COOLDOWN: 1500,        // Don't repeat same alert for 1.5s (was 2s)
         VIBRATE_COOLDOWN: 400,
@@ -1343,11 +1343,12 @@
             dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} dh:${dhz} | ${rawThreat}→${highestThreat}`;
         }
 
-        // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
+        // DEPTH SCAN — fire async, but also check cached depth history synchronously
+        // so hazard is picked up THIS cycle, not next
         if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
             state.lastDepthScan = now;
             runDepthDetection().then(hazard => {
-                if (!hazard) return;  // no hazard — let existing depthHazard expire via TTL
+                if (!hazard) return;
                 const ttl = hazard.level === 'danger' ? 1200 : 900;
                 state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
                 speakAlert(hazard.key, hazard.speak);
@@ -1359,6 +1360,18 @@
                     playAlertSound('ahead', 'warning');
                 }
             });
+        }
+
+        // SYNC depth check: use last known depth values to detect hazard THIS cycle
+        // (doesn't wait for async model — uses cached depthHistory from previous scan)
+        if (state.depthHistory.length >= 2 && !state.depthHazard) {
+            const last = state.depthHistory[state.depthHistory.length - 1];
+            if (!last.lidar) {
+                const syncHazard = computeDepthHazard(last.c, last.l, last.r);
+                if (syncHazard) {
+                    state.depthHazard = { ...syncHazard, expiry: now + 800 };
+                }
+            }
         }
 
         // EXPIRE stale hazards
