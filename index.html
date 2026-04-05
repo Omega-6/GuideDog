@@ -1179,6 +1179,11 @@
     }
 
     // ========== MAIN PROTECTION LOOP ==========
+    // Temporal smoothing: require 2 consecutive readings at a level before switching.
+    // Prevents bouncing between safe/warning/danger from inconsistent COCO-SSD detections.
+    let _threatHistory = [];
+    const THREAT_CONFIRM_COUNT = 2;
+
     async function protectionLoop() {
         if (!state.isRunning) {
             setTimeout(protectionLoop, 500);
@@ -1192,7 +1197,7 @@
 
         // Find most dangerous local obstacle
         let mostDangerous = null;
-        let highestThreat = 'safe';
+        let rawThreat = 'safe';
 
         for (const det of state.localDetections) {
             if (!det.inPath) continue;
@@ -1200,14 +1205,34 @@
             if (det.distance < CONFIG.DANGER_ZONE) {
                 if (!mostDangerous || det.distance < mostDangerous.distance) {
                     mostDangerous = det;
-                    highestThreat = 'danger';
+                    rawThreat = 'danger';
                 }
-            } else if (det.distance < CONFIG.WARNING_ZONE && highestThreat !== 'danger') {
+            } else if (det.distance < CONFIG.WARNING_ZONE && rawThreat !== 'danger') {
                 if (!mostDangerous || det.distance < mostDangerous.distance) {
                     mostDangerous = det;
-                    highestThreat = 'warning';
+                    rawThreat = 'warning';
                 }
             }
+        }
+
+        // Temporal smoothing: escalate immediately (safety first),
+        // but require 2 consecutive safe readings before de-escalating
+        _threatHistory.push(rawThreat);
+        if (_threatHistory.length > 4) _threatHistory.shift();
+
+        let highestThreat;
+        if (rawThreat === 'danger') {
+            highestThreat = 'danger';  // escalate immediately
+        } else if (rawThreat === 'warning') {
+            highestThreat = (state.currentStatus === 'danger')
+                ? 'danger'  // stay at danger until 2 non-danger readings
+                : 'warning';
+            const recentDanger = _threatHistory.slice(-THREAT_CONFIRM_COUNT).some(t => t === 'danger');
+            if (!recentDanger && rawThreat === 'warning') highestThreat = 'warning';
+        } else {
+            // Only go to safe if last N readings were all safe
+            const recentNonSafe = _threatHistory.slice(-THREAT_CONFIRM_COUNT).some(t => t !== 'safe');
+            highestThreat = recentNonSafe ? (state.currentStatus || 'safe') : 'safe';
         }
 
         // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
