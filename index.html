@@ -553,65 +553,67 @@
     }
     
     // ========== SPEECH ==========
-    // Priority levels: danger > warning > info. Higher priority interrupts lower.
-    // Same priority respects cooldown. Lower priority never interrupts higher.
+    // iOS Safari bug: speechSynthesis.cancel() followed immediately by .speak()
+    // can silently drop the utterance. We work around this by:
+    // 1. Never calling cancel() — just let utterances queue
+    // 2. Using a single doSpeak() that handles the queue
+    // 3. Unlocking audio on first touch globally, not just in alertArea
     let _currentSpeechPriority = 0;
-    let _speechEndTime = 0;
+    let _lastSpeechTime = 0;
+
+    // Ensure audio works — attach to document level so ANY touch unlocks
+    document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+
+    function doSpeak(text, rate = 1.1) {
+        try {
+            // Don't cancel — iOS drops speech after cancel. Just let it queue.
+            // speechSynthesis only queues, so rapid calls won't overlap.
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = rate;
+            u.volume = 1.0;
+            u.onend = () => { _currentSpeechPriority = 0; };
+            u.onerror = () => { _currentSpeechPriority = 0; };
+            speechSynthesis.speak(u);
+            _lastSpeechTime = Date.now();
+            console.log('Speaking:', text);
+        } catch (e) {
+            console.warn('Speech error:', e);
+        }
+    }
 
     function speak(text, force = false) {
         if (!text) return;
-
         const now = Date.now();
-        if (!force && now - state.lastVoice < CONFIG.VOICE_COOLDOWN) return;
-
+        if (!force && now - _lastSpeechTime < CONFIG.VOICE_COOLDOWN) return;
         if (state.isListening) stopListening();
-
-        try {
-            speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(text);
-            u.rate = 1.1;
-            u.volume = 1.0;
-            u.onend = () => { _currentSpeechPriority = 0; };
-            speechSynthesis.speak(u);
-            state.lastVoice = now;
-            _currentSpeechPriority = 1;
-            _speechEndTime = now + 2000; // estimate
-            console.log('Speaking:', text);
-        } catch (e) {}
+        // Cancel only for forced user-initiated speech (button taps)
+        if (force) { try { speechSynthesis.cancel(); } catch(e){} }
+        _currentSpeechPriority = 0;  // user speech has no priority lock
+        doSpeak(text);
     }
 
-    // Priority-aware alert speech
-    // priority: 3=danger, 2=warning, 1=info
-    // Danger can always speak (interrupts everything, 2s cooldown per key)
-    // Warning only if nothing higher is playing (3s cooldown per key)
-    // Info only if silent (5s cooldown per key)
     function speakAlert(key, text, priority = 2) {
         const now = Date.now();
-
         const cooldowns = { 3: 2000, 2: 3000, 1: 5000 };
         const cooldown = cooldowns[priority] || 3000;
 
         if (now - (state.lastAlerts[key] || 0) < cooldown) return;
-
-        // Don't let lower priority interrupt higher
-        if (priority < _currentSpeechPriority && now < _speechEndTime) return;
+        if (priority < _currentSpeechPriority && now - _lastSpeechTime < 1500) return;
 
         state.lastAlerts[key] = now;
-
         if (state.isListening) stopListening();
 
-        try {
-            speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(text);
-            u.rate = priority >= 3 ? 1.3 : 1.1;  // danger speaks faster
-            u.volume = 1.0;
-            u.onend = () => { _currentSpeechPriority = 0; };
-            speechSynthesis.speak(u);
-            state.lastVoice = now;
-            _currentSpeechPriority = priority;
-            _speechEndTime = now + (priority >= 3 ? 1500 : 2500);
-            console.log(`Speaking [p${priority}]:`, text);
-        } catch (e) {}
+        // For danger: cancel current speech and speak immediately
+        if (priority >= 3) {
+            try { speechSynthesis.cancel(); } catch(e){}
+            // iOS needs a tiny delay after cancel
+            setTimeout(() => doSpeak(text, 1.3), 50);
+        } else if (!speechSynthesis.speaking) {
+            doSpeak(text, 1.1);
+        }
+        // If something is already speaking and this isn't danger, skip — don't queue
+        _currentSpeechPriority = priority;
     }
     
     // ========== SPEECH RECOGNITION ==========
@@ -1816,8 +1818,8 @@
             privacyNotice.style.display = 'flex';
             privacyAccept.addEventListener('click', showHelp, { once: true });
         } else {
-            // Returning user — start silently (no user gesture yet, audio locked on iOS)
-            // First touch on the screen will call unlockAudio() via touchstart handler
+            // Returning user — audio locked until first touch (iOS requirement).
+            // Document-level touchstart handler calls unlockAudio().
             state.isRunning = true;
             protectionLoop();
         }
