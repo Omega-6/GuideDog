@@ -1267,6 +1267,76 @@
         return null;
     }
 
+    // ========== FAST WALL DETECTOR (no ML — pure pixel math, <5ms) ==========
+    // A wall/surface close to the camera fills the frame with uniform color.
+    // Open space has edges, texture variation, multiple colors.
+    // We measure the variance of pixel brightness in the center strip —
+    // low variance = flat surface = wall. Runs every loop cycle instantly.
+    function fastWallCheck() {
+        if (!state.video || state.video.videoWidth === 0) return null;
+
+        // Reuse a tiny canvas — 64x48 is plenty for variance calculation
+        if (!state._wallCanvas) {
+            state._wallCanvas = document.createElement('canvas');
+            state._wallCanvas.width = 64;
+            state._wallCanvas.height = 48;
+            state._wallCtx = state._wallCanvas.getContext('2d', { willReadFrequently: true });
+        }
+
+        try {
+            const ctx = state._wallCtx;
+            ctx.drawImage(state.video, 0, 0, 64, 48);
+            const img = ctx.getImageData(0, 0, 64, 48);
+            const d = img.data;
+
+            // Sample center strip (middle 50% width, middle 60% height)
+            let sum = 0, sumSq = 0, n = 0;
+            let edgeCount = 0;
+            const xStart = 16, xEnd = 48;  // center 50%
+            const yStart = 10, yEnd = 38;  // center 60%
+
+            for (let y = yStart; y < yEnd; y++) {
+                for (let x = xStart; x < xEnd; x++) {
+                    const i = (y * 64 + x) * 4;
+                    const brightness = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+                    sum += brightness;
+                    sumSq += brightness * brightness;
+                    n++;
+
+                    // Count edges: big brightness jump to neighbor = edge
+                    if (x > xStart) {
+                        const prev = d[i-4] * 0.299 + d[i-3] * 0.587 + d[i-2] * 0.114;
+                        if (Math.abs(brightness - prev) > 30) edgeCount++;
+                    }
+                }
+            }
+
+            const mean = sum / n;
+            const variance = (sumSq / n) - (mean * mean);
+            const edgeRatio = edgeCount / n;
+
+            // Low variance + few edges = flat uniform surface = wall
+            // Typical values: wall variance 50-200, open room 500-2000+
+            // Edge ratio: wall <0.05, open space >0.15
+            if (variance < 150 && edgeRatio < 0.06) {
+                return { level: 'danger', key: 'wall_fast',
+                    label: 'WALL', speak: 'Stop',
+                    uiDetail: `Wall detected (v:${variance.toFixed(0)} e:${edgeRatio.toFixed(2)})`,
+                    fromDepth: true };
+            }
+            if (variance < 350 && edgeRatio < 0.10) {
+                return { level: 'warning', key: 'wall_fast',
+                    label: 'SURFACE AHEAD', speak: 'Slow',
+                    uiDetail: `Surface ahead (v:${variance.toFixed(0)} e:${edgeRatio.toFixed(2)})`,
+                    fromDepth: true };
+            }
+
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     // ========== MAIN PROTECTION LOOP ==========
     // Smoothing: escalate instantly, require 2 consecutive safe readings to de-escalate.
     let _threatHistory = [];
@@ -1284,6 +1354,17 @@
         }
 
         const now = Date.now();
+
+        // FAST WALL CHECK — instant, no ML, runs every cycle (<5ms)
+        const wallResult = fastWallCheck();
+        if (wallResult && !state.depthHazard) {
+            state.depthHazard = { ...wallResult, expiry: now + 600 };
+            speakAlert(wallResult.key, wallResult.speak);
+            if (wallResult.level === 'danger') {
+                vibrateAlert('danger');
+                playAlertSound('ahead', 'danger');
+            }
+        }
 
         // LOCAL DETECTION — time it
         const t0 = performance.now();
