@@ -355,14 +355,15 @@
     -->
     <script type="module">
     (async () => {
+        // Transformers.js v4 — uses WebGPU when available (3-10x faster), falls back to WASM
         try {
-            const m = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+            const m = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/dist/transformers.min.js');
             window.__txPipeline = m.pipeline;
             window.__txEnv = m.env;
             window.dispatchEvent(new CustomEvent('tx-ready'));
         } catch (e1) {
             try {
-                const m = await import('https://esm.sh/@xenova/transformers@2.17.2');
+                const m = await import('https://esm.sh/@huggingface/transformers@3');
                 window.__txPipeline = m.pipeline;
                 window.__txEnv = m.env;
                 window.dispatchEvent(new CustomEvent('tx-ready'));
@@ -772,41 +773,66 @@
     }
     
     // ========== LOCAL DETECTION ==========
+    // Known real-world heights (meters) for COCO-SSD classes — used for distance triangulation
+    const KNOWN_HEIGHTS = {
+        person: 1.7, bicycle: 1.0, car: 1.5, motorcycle: 1.1, bus: 3.0, truck: 3.0,
+        dog: 0.5, cat: 0.3, horse: 1.6, chair: 0.9, couch: 0.85, bed: 0.6,
+        'dining table': 0.75, toilet: 0.4, refrigerator: 1.7, 'fire hydrant': 0.6,
+        'stop sign': 2.1, 'parking meter': 1.2, bench: 0.85, backpack: 0.5,
+        suitcase: 0.7, 'potted plant': 0.5, 'sports ball': 0.22, skateboard: 0.1
+    };
+
+    // Estimate camera vertical FOV from video dimensions (default ~55° for most phones)
+    function getCameraFOV() { return 55 * (Math.PI / 180); }
+
+    // Distance = (realHeight * imageHeight) / (2 * bboxHeight * tan(FOV/2))
+    function estimateDistance(className, bboxHeight, imageHeight) {
+        const realH = KNOWN_HEIGHTS[className];
+        if (!realH || bboxHeight < 5) return null;  // unknown class or too small
+        const fov = getCameraFOV();
+        const d = (realH * imageHeight) / (2 * bboxHeight * Math.tan(fov / 2));
+        return Math.max(0.3, Math.min(d, 8.0));  // clamp 0.3m – 8m
+    }
+
     async function detectLocal() {
         if (!state.model || !state.video) return [];
-        
+
         try {
             const predictions = await state.model.detect(state.video);
-            
+
             const vw = state.video.videoWidth || 1;
             const vh = state.video.videoHeight || 1;
             return predictions.map(p => {
                 const cx = (p.bbox[0] + p.bbox[2] / 2) / vw;
                 const cy = (p.bbox[1] + p.bbox[3] / 2) / vh;
-                const size = Math.max(p.bbox[2], p.bbox[3]) / Math.max(vw, vh);
-                
+
                 // Position
                 let position = 'ahead';
                 if (cx < 0.35) position = 'left';
                 else if (cx > 0.65) position = 'right';
-                
-                // Distance estimate from size
-                let distance = 5.0;
-                if (size > 0.6) distance = 0.5;
-                else if (size > 0.45) distance = 1.0;
-                else if (size > 0.3) distance = 1.5;
-                else if (size > 0.2) distance = 2.0;
-                else if (size > 0.1) distance = 3.0;
-                else if (size > 0.05) distance = 4.0;
-                
+
+                // Distance: use known-object triangulation if available,
+                // fall back to crude bbox-size estimate
+                let distance = estimateDistance(p.class, p.bbox[3], vh);
+                if (distance === null) {
+                    // Fallback for unknown objects
+                    const size = Math.max(p.bbox[2], p.bbox[3]) / Math.max(vw, vh);
+                    if (size > 0.6) distance = 0.5;
+                    else if (size > 0.45) distance = 1.0;
+                    else if (size > 0.3) distance = 1.5;
+                    else if (size > 0.2) distance = 2.0;
+                    else if (size > 0.1) distance = 3.0;
+                    else distance = 4.0;
+                }
+
                 // Is it in the walking path?
                 const inPath = cx > 0.25 && cx < 0.75 && cy > 0.3;
-                
+
                 // Danger level
                 let danger = 'low';
                 if (CONFIG.CRITICAL.includes(p.class)) danger = 'critical';
                 else if (CONFIG.OBSTACLES.includes(p.class)) danger = 'obstacle';
-                
+
                 return {
                     name: p.class,
                     position: position,
@@ -1017,15 +1043,30 @@
         try {
             const env = window.__txEnv;
             if (env) env.allowLocalModels = false;
-            if (badge) badge.textContent = 'Downloading depth model…';
+            // Use WebGPU if available (3-10x faster), fall back to wasm
+            const device = (navigator.gpu) ? 'webgpu' : 'wasm';
+            if (badge) badge.textContent = `Downloading depth model (${device})…`;
+            console.log('Depth: using device:', device);
             state.depthPipeline = await window.__txPipeline(
-                'depth-estimation', 'Xenova/depth-anything-small-hf', { quantized: true }
+                'depth-estimation', 'onnx-community/depth-anything-v2-small',
+                { dtype: 'fp32', device: device }
             );
-            if (badge) badge.textContent = 'AI + Depth Active';
-            console.log('Transformers.js depth model ready');
+            if (badge) badge.textContent = `AI + Depth Active (${device})`;
+            console.log('Transformers.js depth model ready on', device);
         } catch (e) {
             console.error('Depth model failed:', e.message || e);
-            if (badge) badge.textContent = 'AI Active';
+            // Fallback: try wasm if webgpu failed
+            try {
+                state.depthPipeline = await window.__txPipeline(
+                    'depth-estimation', 'onnx-community/depth-anything-v2-small',
+                    { dtype: 'fp32', device: 'wasm' }
+                );
+                if (badge) badge.textContent = 'AI + Depth Active (wasm)';
+                console.log('Depth model ready on wasm fallback');
+            } catch (e2) {
+                console.error('Depth model fallback also failed:', e2);
+                if (badge) badge.textContent = 'AI Active';
+            }
         }
     }
 
