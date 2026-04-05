@@ -1276,12 +1276,6 @@
                 uiDetail: `Surface ahead (c:${c.toFixed(0)})`, fromDepth: true };
         }
 
-        // Scene average (enclosed spaces)
-        if (scene > 100) {
-            return { level: 'danger', key: 'depth_scene',
-                label: 'ENCLOSED', speak: 'Stop',
-                uiDetail: `Close all sides (${scene.toFixed(0)})`, fromDepth: true };
-        }
 
         // Center deviation (isolated obstacles)
         const cRatio = c / scene;
@@ -1372,10 +1366,12 @@
         }
     }
 
-    // ========== FAST HAZARD LOOP (50ms — runs 20x/sec, independent of COCO-SSD) ==========
-    // Does wall check + cached depth check + sets safety level directly.
-    // No ML inference — pure pixel math + cached values. Total <5ms per cycle.
+    // ========== FAST HAZARD LOOP (50ms — SOLE owner of UI + speech) ==========
+    // Main loop only sets data (detections, hazards). This loop reads that data
+    // and controls ALL visual + audio output. No other code touches UI.
     let _fastLoopRunning = false;
+    let _lastFastThreat = 'safe';
+    let _lastFastSpeech = 0;
 
     function fastHazardLoop() {
         if (_fastLoopRunning) return;
@@ -1388,68 +1384,83 @@
         }
 
         const now = Date.now();
-        let fastThreat = 'safe';
-        let fastLabel = '';
-        let fastDetail = '';
+        let threat = 'safe';
+        let label = '';
+        let detail = '';
+        let pos = 'ahead';
 
         // 1. Pixel-variance wall check (<3ms)
         const wallResult = fastWallCheck();
         if (wallResult) {
             state.depthHazard = { ...wallResult, expiry: now + 800 };
-            fastThreat = wallResult.level;
-            fastLabel = wallResult.label;
-            fastDetail = wallResult.uiDetail;
+            threat = wallResult.level;
+            label = wallResult.label;
+            detail = wallResult.uiDetail;
         }
 
-        // 2. Cached depth values check (<1ms)
-        if (fastThreat === 'safe' && state.depthHistory.length >= 2) {
+        // 2. Cached depth values (<1ms)
+        if (threat === 'safe' && state.depthHistory.length >= 2) {
             const last = state.depthHistory[state.depthHistory.length - 1];
             if (!last.lidar) {
-                const depthResult = computeDepthHazard(last.c, last.l, last.r);
-                if (depthResult) {
-                    state.depthHazard = { ...depthResult, expiry: now + 800 };
-                    fastThreat = depthResult.level;
-                    fastLabel = depthResult.label;
-                    fastDetail = depthResult.uiDetail;
+                const dr = computeDepthHazard(last.c, last.l, last.r);
+                if (dr) {
+                    state.depthHazard = { ...dr, expiry: now + 800 };
+                    threat = dr.level; label = dr.label; detail = dr.uiDetail;
                 }
             }
         }
 
-        // 3. Check active depthHazard/aiHazard that main loop set
-        if (fastThreat === 'safe') {
+        // 3. Active hazards from depth model + AI cloud
+        if (threat === 'safe') {
             for (const hz of [state.depthHazard, state.aiHazard]) {
                 if (!hz || now > hz.expiry) continue;
-                if (hz.level === 'danger') { fastThreat = 'danger'; fastLabel = hz.label; fastDetail = hz.uiDetail; break; }
-                if (hz.level === 'warning' && fastThreat === 'safe') { fastThreat = 'warning'; fastLabel = hz.label; fastDetail = hz.uiDetail; }
+                if (hz.level === 'danger') { threat = 'danger'; label = hz.label; detail = hz.uiDetail; break; }
+                if (hz.level === 'warning') { threat = 'warning'; label = hz.label; detail = hz.uiDetail; }
             }
         }
 
-        // 4. Also incorporate COCO-SSD results from main loop
-        if (fastThreat === 'safe' && state.currentObstacle && state.currentStatus !== 'safe') {
-            fastThreat = state.currentStatus;
-            fastLabel = state.currentObstacle.displayLabel || state.currentObstacle.name || 'Obstacle';
-            fastDetail = state.currentObstacle.uiDetail || '';
+        // 4. COCO-SSD results from main loop
+        if (threat === 'safe' && state._mainThreat && state._mainThreat !== 'safe' && state.currentObstacle) {
+            threat = state._mainThreat;
+            const ob = state.currentObstacle;
+            label = ob.displayLabel || ob.name || 'Obstacle';
+            detail = ob.uiDetail || `${(ob.distance * 3.28084).toFixed(0)} ft ${ob.position}`;
+            pos = ob.position || 'ahead';
         }
 
-        // UPDATE UI at 20fps — always matches current threat
-        if (fastThreat === 'danger') {
-            updateUI('danger', '!', `STOP! ${fastLabel}!`, fastDetail);
-            updateDirections('ahead', 'danger');
-            speakAlert('fast_danger', 'Stop', 3);
-            if (now - (state._lastWallSound || 0) > 1000) {
-                vibrateAlert('danger');
-                playAlertSound('ahead', 'danger');
-                state._lastWallSound = now;
-            }
-        } else if (fastThreat === 'warning') {
-            updateUI('warning', '!', `${fastLabel} ahead`, fastDetail);
-            updateDirections('ahead', 'warning');
-        } else if (state.currentStatus === 'safe') {
-            // Only show safe if main loop also agrees
+        // ── UI UPDATE (every 50ms — always in sync) ──
+        if (threat === 'danger') {
+            updateUI('danger', '!', `STOP! ${label}!`, detail);
+            updateDirections(pos, 'danger');
+        } else if (threat === 'warning') {
+            updateUI('warning', '!', `${label} ahead`, detail);
+            updateDirections(pos, 'warning');
+        } else {
             updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
             updateDirections(null, 'safe');
         }
-        state.currentStatus = fastThreat;
+
+        // ── AUDIO (only on state change or sustained danger) ──
+        if (!state.isPaused) {
+            const changed = threat !== _lastFastThreat;
+
+            if (threat === 'danger') {
+                if (changed || now - _lastFastSpeech > 2500) {
+                    speakAlert('fast_danger', `Stop. ${label}.`, 3);
+                    vibrateAlert('danger');
+                    playAlertSound(pos, 'danger');
+                    _lastFastSpeech = now;
+                }
+            } else if (threat === 'warning' && changed) {
+                speakAlert('fast_warning', `Caution. ${label}.`, 2);
+                vibrateAlert('warning');
+                playAlertSound(pos, 'warning');
+                _lastFastSpeech = now;
+            }
+        }
+
+        _lastFastThreat = threat;
+        state.currentStatus = threat;
 
         _fastLoopRunning = false;
         setTimeout(fastHazardLoop, 50);
@@ -1558,25 +1569,17 @@
             dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} dh:${dhz} | ${rawThreat}→${highestThreat}`;
         }
 
-        // DEPTH SCAN — fire async to refresh cache for next cycle
+        // DEPTH SCAN — fire async to refresh cache (no UI/speech — fast loop handles that)
         if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
             state.lastDepthScan = now;
             runDepthDetection().then(hazard => {
                 if (!hazard) return;
                 const ttl = hazard.level === 'danger' ? 1200 : 900;
                 state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
-                speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
-                if (hazard.level === 'danger') {
-                    vibrateAlert('danger');
-                    playAlertSound('ahead', 'danger');
-                } else {
-                    vibrateAlert('warning');
-                    playAlertSound('ahead', 'warning');
-                }
             });
         }
 
-        // AI SCAN (background, every 1.5s — haiku is fast enough)
+        // AI SCAN — fire async, set hazard (no UI/speech — fast loop handles that)
         if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused && !state.aiScanInProgress) {
             state.lastAIScan = now;
             state.aiScanInProgress = true;
@@ -1592,81 +1595,13 @@
                     return;
                 }
 
-                // Short TTL — AI re-scans every 5s, don't hold stale results
                 const ttl = hazard.level === 'danger' ? 3000 : 2000;
                 state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
-
-                // Immediate alert on fresh detection
-                if (hazard.level === 'danger') {
-                    speakAlert(hazard.key, hazard.speak, 3);
-                    vibrateAlert('danger');
-                    playAlertSound('ahead', 'danger');
-                } else if (hazard.level === 'warning') {
-                    speakAlert(hazard.key, hazard.speak, 2);
-                    vibrateAlert('warning');
-                    playAlertSound('ahead', 'warning');
-                } else if (hazard.level === 'info' && hazard.speak) {
-                    speakAlert(hazard.key, hazard.speak, 1);
-                }
-
-                // Re-scan sooner if hazard found (keep watching until clear)
-                if (hazard.level !== 'info') {
-                    state.lastAIScan = Date.now() - (CONFIG.AI_SCAN_INTERVAL - 500);
-                }
             }).catch(() => { state.aiScanInProgress = false; });
         }
 
-        // UPDATE UI AND ALERTS — single code path, always runs, always in sync
-        const statusChanged = highestThreat !== state.currentStatus;
-        const sustainedDanger = highestThreat === 'danger' && now - state.lastDangerAnnounce > 3000;
-        const shouldSound = statusChanged || now - state.lastAlertSound > 2000;
-
-        if (highestThreat === 'danger') {
-            const label = mostDangerous
-                ? (mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase())
-                : 'OBSTACLE';
-            const detail = mostDangerous?.uiDetail || 'Very close ahead';
-            const pos = mostDangerous?.position || 'ahead';
-            updateUI('danger', '!', `STOP! ${label}!`, detail);
-            updateDirections(pos, 'danger');
-            if (!state.isPaused && shouldSound) {
-                playAlertSound(pos, 'danger');
-                vibrateAlert('danger');
-                state.lastAlertSound = now;
-            }
-            if (!state.isPaused && (statusChanged || sustainedDanger) && mostDangerous && !mostDangerous.fromAI) {
-                const displayName = getDisplayName(mostDangerous);
-                const escapeDir = pos === 'left' ? 'right' : pos === 'right' ? 'left' : 'back';
-                speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`, 3);
-                state.lastDangerAnnounce = now;
-            }
-
-        } else if (highestThreat === 'warning') {
-            const label = mostDangerous
-                ? (mostDangerous.displayLabel || getDisplayName(mostDangerous))
-                : 'Obstacle';
-            const detail = mostDangerous?.uiDetail || 'Caution ahead';
-            const pos = mostDangerous?.position || 'ahead';
-            updateUI('warning', '!', `${label} ahead`, detail);
-            updateDirections(pos, 'warning');
-            if (!state.isPaused && statusChanged && shouldSound) {
-                playAlertSound(pos, 'warning');
-                vibrateAlert('warning');
-                state.lastAlertSound = now;
-            }
-            if (!state.isPaused && statusChanged && mostDangerous && !mostDangerous.fromAI) {
-                const displayName = getDisplayName(mostDangerous);
-                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`, 2);
-            }
-
-        } else {
-            updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
-            updateDirections(null, 'safe');
-            state.lastDangerAnnounce = 0;
-        }
-
-        // Update status AFTER UI so statusChanged comparison works correctly
-        state.currentStatus = highestThreat;
+        // Store COCO-SSD threat for fast loop to pick up (no UI here)
+        state._mainThreat = highestThreat;
         state.currentObstacle = mostDangerous;
 
         _loopRunning = false;
