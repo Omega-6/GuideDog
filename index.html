@@ -1372,36 +1372,86 @@
         }
     }
 
-    // ========== FAST HAZARD LOOP (50ms — wall check only, independent of COCO-SSD) ==========
-    // Runs 20x/sec regardless of how slow the ML detection loop is.
-    // Only does the pixel-variance wall check (<5ms) and updates UI directly.
+    // ========== FAST HAZARD LOOP (50ms — runs 20x/sec, independent of COCO-SSD) ==========
+    // Does wall check + cached depth check + sets safety level directly.
+    // No ML inference — pure pixel math + cached values. Total <5ms per cycle.
+    let _fastLoopRunning = false;
+
     function fastHazardLoop() {
+        if (_fastLoopRunning) return;
+        _fastLoopRunning = true;
+
         if (!state.isRunning || !state.video || state.video.videoWidth === 0) {
+            _fastLoopRunning = false;
             setTimeout(fastHazardLoop, 100);
             return;
         }
 
-        const wallResult = fastWallCheck();
         const now = Date.now();
+        let fastThreat = 'safe';
+        let fastLabel = '';
+        let fastDetail = '';
 
+        // 1. Pixel-variance wall check (<3ms)
+        const wallResult = fastWallCheck();
         if (wallResult) {
             state.depthHazard = { ...wallResult, expiry: now + 800 };
+            fastThreat = wallResult.level;
+            fastLabel = wallResult.label;
+            fastDetail = wallResult.uiDetail;
+        }
 
-            // Update UI immediately — don't wait for the main loop
-            updateUI(wallResult.level, '!',
-                wallResult.level === 'danger' ? `STOP! ${wallResult.label}!` : `${wallResult.label} ahead`,
-                wallResult.uiDetail);
-            updateDirections('ahead', wallResult.level);
-            state.currentStatus = wallResult.level;
+        // 2. Cached depth values check (<1ms)
+        if (fastThreat === 'safe' && state.depthHistory.length >= 2) {
+            const last = state.depthHistory[state.depthHistory.length - 1];
+            if (!last.lidar) {
+                const depthResult = computeDepthHazard(last.c, last.l, last.r);
+                if (depthResult) {
+                    state.depthHazard = { ...depthResult, expiry: now + 800 };
+                    fastThreat = depthResult.level;
+                    fastLabel = depthResult.label;
+                    fastDetail = depthResult.uiDetail;
+                }
+            }
+        }
 
-            speakAlert(wallResult.key, wallResult.speak, wallResult.level === 'danger' ? 3 : 2);
-            if (wallResult.level === 'danger' && now - (state._lastWallSound || 0) > 1000) {
+        // 3. Check active depthHazard/aiHazard that main loop set
+        if (fastThreat === 'safe') {
+            for (const hz of [state.depthHazard, state.aiHazard]) {
+                if (!hz || now > hz.expiry) continue;
+                if (hz.level === 'danger') { fastThreat = 'danger'; fastLabel = hz.label; fastDetail = hz.uiDetail; break; }
+                if (hz.level === 'warning' && fastThreat === 'safe') { fastThreat = 'warning'; fastLabel = hz.label; fastDetail = hz.uiDetail; }
+            }
+        }
+
+        // 4. Also incorporate COCO-SSD results from main loop
+        if (fastThreat === 'safe' && state.currentObstacle && state.currentStatus !== 'safe') {
+            fastThreat = state.currentStatus;
+            fastLabel = state.currentObstacle.displayLabel || state.currentObstacle.name || 'Obstacle';
+            fastDetail = state.currentObstacle.uiDetail || '';
+        }
+
+        // UPDATE UI at 20fps — always matches current threat
+        if (fastThreat === 'danger') {
+            updateUI('danger', '!', `STOP! ${fastLabel}!`, fastDetail);
+            updateDirections('ahead', 'danger');
+            speakAlert('fast_danger', 'Stop', 3);
+            if (now - (state._lastWallSound || 0) > 1000) {
                 vibrateAlert('danger');
                 playAlertSound('ahead', 'danger');
                 state._lastWallSound = now;
             }
+        } else if (fastThreat === 'warning') {
+            updateUI('warning', '!', `${fastLabel} ahead`, fastDetail);
+            updateDirections('ahead', 'warning');
+        } else if (state.currentStatus === 'safe') {
+            // Only show safe if main loop also agrees
+            updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
+            updateDirections(null, 'safe');
         }
+        state.currentStatus = fastThreat;
 
+        _fastLoopRunning = false;
         setTimeout(fastHazardLoop, 50);
     }
 
