@@ -315,6 +315,7 @@
                     <div class="alert-icon" id="alertIcon">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
+                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;"></div>
                 </div>
                 
                 <div class="direction-row">
@@ -1186,8 +1187,10 @@
 
         const now = Date.now();
 
-        // LOCAL DETECTION (fast, every 300ms)
+        // LOCAL DETECTION — time it
+        const t0 = performance.now();
         state.localDetections = await detectLocal();
+        const detectMs = Math.round(performance.now() - t0);
 
         // Find most dangerous local obstacle
         let mostDangerous = null;
@@ -1221,6 +1224,15 @@
             const recent = _threatHistory.slice(-SAFE_CONFIRM_COUNT);
             const allSafe = recent.length >= SAFE_CONFIRM_COUNT && recent.every(t => t === 'safe');
             highestThreat = allSafe ? 'safe' : (state.currentStatus || 'safe');
+        }
+
+        // Debug info — shows detection timing and what's seen
+        const dbg = document.getElementById('debugInfo');
+        if (dbg) {
+            const objs = state.localDetections.map(d =>
+                `${d.name}(${(d.distance*3.28084).toFixed(0)}ft ${d.position})`
+            ).join(', ') || 'none';
+            dbg.textContent = `detect:${detectMs}ms | ${state.localDetections.length} obj: ${objs} | raw:${rawThreat} final:${highestThreat}`;
         }
 
         // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
