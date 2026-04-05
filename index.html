@@ -1205,22 +1205,22 @@
         const cMeters = depthToMeters(c);
         if (cMeters !== null) {
             const cFt = (cMeters * 3.28084).toFixed(1);
-            if (cMeters < 0.6) {
+            if (cMeters < 1.0) {
                 return { level: 'danger', key: 'depth_close',
                     label: 'VERY CLOSE', speak: 'Stop',
-                    uiDetail: `Surface ${cFt} ft ahead`, fromDepth: true };
+                    uiDetail: `${cFt} ft ahead`, fromDepth: true };
             }
-            if (cMeters < 1.2) {
+            if (cMeters < 1.8) {
                 return { level: 'danger', key: 'depth_danger',
                     label: 'CLOSE', speak: 'Stop',
                     uiDetail: `${cFt} ft ahead`, fromDepth: true };
             }
-            if (cMeters < 2.0) {
+            if (cMeters < 3.0) {
                 return { level: 'warning', key: 'depth_warn',
                     label: 'OBSTACLE AHEAD', speak: 'Slow',
                     uiDetail: `${cFt} ft ahead`, fromDepth: true };
             }
-            return null;  // calibrated and far enough — safe
+            return null;
         }
 
         // ── UNCALIBRATED FALLBACK (raw 0-255 values) ─────────────────────────────
@@ -1229,19 +1229,20 @@
         if (scene < 1) return null;
 
         // Center zone (catches walls head-on)
-        if (c > 160) {
+        // Values vary wildly per phone/lighting — use aggressive thresholds
+        if (c > 110) {
             return { level: 'danger', key: 'depth_close',
                 label: 'WALL/OBSTACLE', speak: 'Stop',
-                uiDetail: `Very close ahead (${c.toFixed(0)})`, fromDepth: true };
+                uiDetail: `Close ahead (c:${c.toFixed(0)})`, fromDepth: true };
         }
-        if (c > 120) {
+        if (c > 85) {
             return { level: 'warning', key: 'depth_near',
                 label: 'SURFACE AHEAD', speak: 'Slow',
-                uiDetail: `Surface ahead (${c.toFixed(0)})`, fromDepth: true };
+                uiDetail: `Surface ahead (c:${c.toFixed(0)})`, fromDepth: true };
         }
 
         // Scene average (enclosed spaces)
-        if (scene > 145) {
+        if (scene > 100) {
             return { level: 'danger', key: 'depth_scene',
                 label: 'ENCLOSED', speak: 'Stop',
                 uiDetail: `Close all sides (${scene.toFixed(0)})`, fromDepth: true };
