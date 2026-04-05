@@ -1392,8 +1392,8 @@
 
         // FAST WALL CHECK — instant, no ML, runs every cycle (<5ms)
         const wallResult = fastWallCheck();
-        if (wallResult && !state.depthHazard) {
-            state.depthHazard = { ...wallResult, expiry: now + 600 };
+        if (wallResult) {
+            state.depthHazard = { ...wallResult, expiry: now + 800 };
             speakAlert(wallResult.key, wallResult.speak, wallResult.level === 'danger' ? 3 : 2);
             if (wallResult.level === 'danger') {
                 vibrateAlert('danger');
@@ -1443,60 +1443,10 @@
             highestThreat = allSafe ? 'safe' : (state.currentStatus || 'safe');
         }
 
-        // Debug info — shows detection timing and what's seen
-        const dbg = document.getElementById('debugInfo');
-        if (dbg) {
-            const objs = state.localDetections.map(d =>
-                `${d.name}(${(d.distance*3.28084).toFixed(0)}ft ${d.position})`
-            ).join(', ') || 'none';
-            const depthStatus = state.xrDepthActive ? 'LiDAR' : state.depthPipeline ? 'model' : 'loading...';
-            const depthHist = state.depthHistory.length > 0 ? state.depthHistory[state.depthHistory.length-1] : null;
-            const depthStr = depthHist ? `c:${depthHist.c.toFixed?.(0) ?? depthHist.c}` : 'no data';
-            const calStr = state.depthCalibration
-                ? `cal:${depthToMeters(depthHist?.c || 0)?.toFixed(1) ?? '?'}m`
-                : 'uncal';
-            const dhz = state.depthHazard ? state.depthHazard.level[0] : '-';
-            dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} dh:${dhz} | ${rawThreat}→${highestThreat}`;
-        }
-
-        // DEPTH SCAN — fire async, but also check cached depth history synchronously
-        // so hazard is picked up THIS cycle, not next
-        if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
-            state.lastDepthScan = now;
-            runDepthDetection().then(hazard => {
-                if (!hazard) return;
-                const ttl = hazard.level === 'danger' ? 1200 : 900;
-                state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
-                speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
-                if (hazard.level === 'danger') {
-                    vibrateAlert('danger');
-                    playAlertSound('ahead', 'danger');
-                } else {
-                    vibrateAlert('warning');
-                    playAlertSound('ahead', 'warning');
-                }
-            });
-        }
-
-        // SYNC depth check: use last known depth values to detect hazard THIS cycle
-        // (doesn't wait for async model — uses cached depthHistory from previous scan)
-        if (state.depthHistory.length >= 2 && !state.depthHazard) {
-            const last = state.depthHistory[state.depthHistory.length - 1];
-            if (!last.lidar) {
-                const syncHazard = computeDepthHazard(last.c, last.l, last.r);
-                if (syncHazard) {
-                    state.depthHazard = { ...syncHazard, expiry: now + 800 };
-                }
-            }
-        }
-
-        // EXPIRE stale hazards
-        if (state.aiHazard && now > state.aiHazard.expiry) state.aiHazard = null;
-        if (state.depthHazard && now > state.depthHazard.expiry) state.depthHazard = null;
-
-        // MERGE depth + AI hazards into threat level (depth and AI are independent)
+        // MERGE depth + AI hazards into threat level BEFORE UI update.
+        // Check hazards exist and haven't expired. Order: merge first, expire after.
         for (const hz of [state.depthHazard, state.aiHazard]) {
-            if (!hz) continue;
+            if (!hz || now > hz.expiry) continue;
             if (hz.level === 'danger' && highestThreat !== 'danger') {
                 highestThreat = 'danger';
                 if (!mostDangerous) {
@@ -1512,6 +1462,44 @@
                         displayLabel: hz.label, uiDetail: hz.uiDetail };
                 }
             }
+        }
+
+        // EXPIRE stale hazards (after merge, so they're used one last time)
+        if (state.aiHazard && now > state.aiHazard.expiry) state.aiHazard = null;
+        if (state.depthHazard && now > state.depthHazard.expiry) state.depthHazard = null;
+
+        // Debug info
+        const dbg = document.getElementById('debugInfo');
+        if (dbg) {
+            const objs = state.localDetections.map(d =>
+                `${d.name}(${(d.distance*3.28084).toFixed(0)}ft ${d.position})`
+            ).join(', ') || 'none';
+            const depthStatus = state.xrDepthActive ? 'LiDAR' : state.depthPipeline ? 'model' : 'loading...';
+            const depthHist = state.depthHistory.length > 0 ? state.depthHistory[state.depthHistory.length-1] : null;
+            const depthStr = depthHist ? `c:${depthHist.c.toFixed?.(0) ?? depthHist.c}` : 'no data';
+            const calStr = state.depthCalibration
+                ? `cal:${depthToMeters(depthHist?.c || 0)?.toFixed(1) ?? '?'}m`
+                : 'uncal';
+            const dhz = state.depthHazard ? state.depthHazard.level[0] : '-';
+            dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | ${depthStatus} ${depthStr} ${calStr} dh:${dhz} | ${rawThreat}→${highestThreat}`;
+        }
+
+        // DEPTH SCAN — fire async to refresh cache for next cycle
+        if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
+            state.lastDepthScan = now;
+            runDepthDetection().then(hazard => {
+                if (!hazard) return;
+                const ttl = hazard.level === 'danger' ? 1200 : 900;
+                state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
+                speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
+                if (hazard.level === 'danger') {
+                    vibrateAlert('danger');
+                    playAlertSound('ahead', 'danger');
+                } else {
+                    vibrateAlert('warning');
+                    playAlertSound('ahead', 'warning');
+                }
+            });
         }
 
         // AI SCAN (background, every 1.5s — haiku is fast enough)
