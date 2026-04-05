@@ -1137,35 +1137,48 @@
 
         const prev = hist[hist.length - 2];
         const prevScene = (prev.c + prev.l + prev.r) / 3;
-        const approaching = prevScene > 1 && scene > prevScene * 1.04; // scene ~4% closer
+        const approaching = prevScene > 1 && scene > prevScene * 1.04;
 
-        // ── ABSOLUTE DEPTH (catches walls where all zones are uniformly close) ──────
-        // Thresholds tuned for Depth-Anything-small: 200+ ≈ <0.5m, 155+ ≈ <1.5m
-        if (scene > 200) {
+        // ── CHECK 1: CENTER zone alone (catches walls head-on + any close obstacle) ──
+        // This is the key fix — walls are uniform across all zones, so checking center
+        // independently catches them even when l/r are also high.
+        if (c > 195) {
             return { level: 'danger', key: 'depth_close',
-                label: 'OBSTACLE CLOSE', speak: 'Stop',
-                uiDetail: 'Very close surface ahead', fromDepth: true };
+                label: 'WALL/OBSTACLE', speak: 'Stop',
+                uiDetail: 'Very close ahead', fromDepth: true };
         }
-        if (scene > 155 && (approaching || scene > 175)) {
+        if (c > 160) {
             return { level: 'warning', key: 'depth_near',
                 label: 'OBSTACLE AHEAD', speak: 'Slow',
-                uiDetail: 'Close obstacle ahead', fromDepth: true };
+                uiDetail: 'Close surface ahead', fromDepth: true };
         }
 
-        // ── CENTER DEVIATION (catches localised obstacle with clear sides) ──────────
+        // ── CHECK 2: SCENE average (catches when everything is close — corridor/corner) ──
+        if (scene > 185) {
+            return { level: 'danger', key: 'depth_scene',
+                label: 'ENCLOSED', speak: 'Stop',
+                uiDetail: 'Surfaces very close all sides', fromDepth: true };
+        }
+        if (scene > 145 && approaching) {
+            return { level: 'warning', key: 'depth_approach',
+                label: 'APPROACHING', speak: 'Slow',
+                uiDetail: 'Getting closer', fromDepth: true };
+        }
+
+        // ── CHECK 3: CENTER DEVIATION (catches localised obstacle with clear sides) ──
         const cRatio = c / scene;
         const sideAvg = ((l + r) / 2) / scene;
-        const deviation = cRatio - sideAvg;  // positive = center is closer than sides
+        const deviation = cRatio - sideAvg;
 
-        if (deviation < 0.10) return null;   // reduced from 0.18 — less corridor suppression
+        if (deviation < 0.10) return null;
 
-        if (deviation > 0.40) {
+        if (deviation > 0.35) {
             return { level: 'danger', key: 'depth_center',
-                label: 'OBSTACLE CLOSE', speak: 'Stop',
+                label: 'OBSTACLE', speak: 'Stop',
                 uiDetail: 'Obstacle directly ahead', fromDepth: true };
         }
-        if (deviation > 0.22) {
-            return { level: 'warning', key: 'depth_approach',
+        if (deviation > 0.20) {
+            return { level: 'warning', key: 'depth_center_warn',
                 label: 'OBSTACLE AHEAD', speak: 'Slow',
                 uiDetail: 'Obstacle in path', fromDepth: true };
         }
