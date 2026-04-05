@@ -1232,7 +1232,10 @@
             const objs = state.localDetections.map(d =>
                 `${d.name}(${(d.distance*3.28084).toFixed(0)}ft ${d.position})`
             ).join(', ') || 'none';
-            dbg.textContent = `detect:${detectMs}ms | ${state.localDetections.length} obj: ${objs} | raw:${rawThreat} final:${highestThreat}`;
+            const depthStatus = state.xrDepthActive ? 'LiDAR' : state.depthPipeline ? 'model' : 'loading...';
+            const depthHist = state.depthHistory.length > 0 ? state.depthHistory[state.depthHistory.length-1] : null;
+            const depthStr = depthHist ? `c:${depthHist.c.toFixed?.(0) ?? depthHist.c} l:${depthHist.l.toFixed?.(0) ?? depthHist.l} r:${depthHist.r.toFixed?.(0) ?? depthHist.r}` : 'no data';
+            dbg.textContent = `det:${detectMs}ms ${state.localDetections.length}obj | depth:${depthStatus} ${depthStr} | ${rawThreat}→${highestThreat}`;
         }
 
         // DEPTH SCAN (local model, no API — runs every 600ms when model is loaded)
