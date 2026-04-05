@@ -1479,6 +1479,15 @@
         state.currentStatus = highestThreat;
         state.currentObstacle = mostDangerous;
 
+        // FORCE color sync — guarantees badge, box, and text always match
+        const badge = document.getElementById('statusBadge');
+        const box = document.getElementById('alertBox');
+        if (badge) {
+            badge.className = `status-badge badge-${highestThreat}`;
+            badge.textContent = highestThreat === 'safe' ? 'SAFE' : highestThreat === 'warning' ? 'CAUTION' : 'DANGER';
+        }
+        if (box) box.className = `alert-box ${highestThreat}`;
+
         setTimeout(protectionLoop, CONFIG.LOCAL_SCAN_INTERVAL);
     }
     
