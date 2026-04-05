@@ -1,4 +1,4 @@
-const CACHE = 'guidedog-v6';      // bumped — forces guidedog-v5 to clear (build 15: fix overlapping AI scans + LiDAR)
+const CACHE = 'guidedog-v20';     // bumped — forces old cache to clear (build 20)
 const CDN_CACHE = 'guidedog-cdn-v1';
 
 const APP_SHELL = ['/GuideDog/', '/GuideDog/index.html', '/GuideDog/manifest.json'];
@@ -54,8 +54,14 @@ self.addEventListener('fetch', e => {
         return;
     }
 
-    // App shell: cache-first, network fallback
+    // App shell: network-first, cache fallback (so updates show immediately)
     e.respondWith(
-        caches.match(e.request).then(r => r || fetch(e.request))
+        fetch(e.request).then(res => {
+            if (res.ok) {
+                const clone = res.clone();
+                caches.open(CACHE).then(c => c.put(e.request, clone));
+            }
+            return res;
+        }).catch(() => caches.match(e.request))
     );
 });
