@@ -214,7 +214,7 @@
             z-index: 100;
             transition: opacity 0.5s;
         }
-        .loading.hidden { opacity: 0; pointer-events: none; }
+        .loading.hidden { opacity: 0; pointer-events: none; display: none; }
         .loading-spinner {
             width: 60px;
             height: 60px;
@@ -299,7 +299,7 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 15</div>
+    <div class="version-tag" id="versionTag">build 23</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -315,9 +315,10 @@
                     <div class="alert-icon" id="alertIcon">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
-                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;"></div>
                 </div>
-                
+
+                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;text-align:center;"></div>
+
                 <div class="direction-row">
                     <div class="direction-btn" id="dirLeft">L</div>
                     <div class="direction-btn" id="dirAhead">F</div>
@@ -409,7 +410,8 @@
         aiResult: null,
         lastAIScan: 0,
         aiScanInProgress: false, // prevents overlapping requests (sonnet takes 2-3s)
-        aiHazard: null,          // persists AI-detected hazard across loop iterations
+        aiHazard: null,          // persists AI cloud-detected hazard across loop iterations
+        depthHazard: null,       // persists depth-model hazard (separate from AI)
 
         // Depth estimation — LiDAR (WebXR) or Transformers.js fallback
         xrSession: null,
@@ -420,8 +422,7 @@
         depthCalibration: null,  // { depthVal, realMeters } — auto-calibrated from COCO-SSD
         
         // Current status
-        currentStatus: 'safe',   // safe, warning, danger
-        lastStatus: 'safe',      // previous loop status — used for change detection
+        currentStatus: 'safe',   // safe, warning, danger — statusChanged compares against this
         currentObstacle: null,
 
         // Alert timing
@@ -838,14 +839,15 @@
         }
     }
 
-    // Convert a raw depth value (0-255) to approximate meters using calibration
+    // Convert a raw depth value (0-255) to approximate meters using calibration.
+    // Depth-Anything: higher value = closer. Relationship: rawValue ∝ 1/distance.
+    // So: distance = k / rawValue, where k = cal.depthVal * cal.realMeters.
     function depthToMeters(depthVal) {
         if (!state.depthCalibration) return null;
         const cal = state.depthCalibration;
-        // Depth is roughly inverse-linear: closer = higher value
-        // distance ≈ cal.realMeters * (cal.depthVal / depthVal)
         if (depthVal < 10) return 10;  // very far
-        return Math.max(0.2, cal.realMeters * (cal.depthVal / depthVal));
+        const k = cal.depthVal * cal.realMeters;
+        return Math.max(0.2, k / depthVal);
     }
 
     async function detectLocal() {
@@ -895,7 +897,7 @@
                     danger: danger,
                     confidence: p.score
                 };
-            }).filter(d => d.confidence > 0.65);
+            }).filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE);
         } catch (e) {
             return [];
         }
@@ -1041,9 +1043,9 @@
 
                             const hazard = computeLiDARHazard(c, l, r);
                             if (hazard) {
-                                const ttl = hazard.level === 'danger' ? 3000 : 2500;
-                                if (!state.aiHazard || hazard.level === 'danger') {
-                                    state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+                                const ttl = hazard.level === 'danger' ? 1200 : 900;
+                                if (!state.depthHazard || hazard.level === 'danger') {
+                                    state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
                                     speakAlert(hazard.key, hazard.speak);
                                     playAlertSound('ahead', hazard.level);
                                     vibrateAlert(hazard.level);
@@ -1179,15 +1181,14 @@
         // ── APPROACH RATE: works without calibration ──────────────────────────────
         // Only triggers if depth is rising FAST and CONSISTENTLY across 3+ frames.
         // Higher thresholds prevent false triggers from camera exposure drift.
-        const prev = hist[hist.length - 2];
-
         if (hist.length >= 4) {
-            const prev3 = hist[hist.length - 4];
-            const avgRate = (c - prev3.c) / 3;  // average over 3 frames
-            // Also require each consecutive frame to be rising (not just endpoints)
-            const rising = hist.slice(-3).every((h, i, a) =>
-                i === 0 || h.c > a[i-1].c + 1  // each frame must be >1 higher than previous
-            );
+            const h0 = hist[hist.length - 4];  // 3 frames ago
+            const h1 = hist[hist.length - 3];
+            const h2 = hist[hist.length - 2];
+            // current = c (already defined above)
+            const avgRate = (c - h0.c) / 3;
+            // Require each consecutive pair to be rising (not just endpoints)
+            const rising = (h1.c > h0.c + 1) && (h2.c > h1.c + 1) && (c > h2.c + 1);
             if (rising && avgRate > 15) {
                 return { level: 'danger', key: 'depth_approaching_fast',
                     label: 'APPROACHING FAST', speak: 'Stop',
@@ -1266,13 +1267,17 @@
     }
 
     // ========== MAIN PROTECTION LOOP ==========
-    // Minimal smoothing: escalate instantly, de-escalate after 2 safe readings.
-    // Fast enough to clear when you move away, stable enough to not flicker.
+    // Smoothing: escalate instantly, require 2 consecutive safe readings to de-escalate.
     let _threatHistory = [];
     const SAFE_CONFIRM_COUNT = 2;
+    let _loopRunning = false;  // prevents multiple protectionLoop instances
 
     async function protectionLoop() {
+        if (_loopRunning) return;  // prevent duplicate loops
+        _loopRunning = true;
+
         if (!state.isRunning) {
+            _loopRunning = false;
             setTimeout(protectionLoop, 500);
             return;
         }
@@ -1307,7 +1312,7 @@
             }
         }
 
-        // Temporal smoothing: escalate instantly, de-escalate only after 3 safe readings.
+        // Temporal smoothing: escalate instantly, de-escalate after 2 consecutive safe readings.
         _threatHistory.push(rawThreat);
         if (_threatHistory.length > 5) _threatHistory.shift();
 
@@ -1340,45 +1345,40 @@
         if (state.depthPipeline && now - state.lastDepthScan > CONFIG.DEPTH_SCAN_INTERVAL) {
             state.lastDepthScan = now;
             runDepthDetection().then(hazard => {
-                if (!hazard) return;
-                if (!state.aiHazard || hazard.level === 'danger' || state.aiHazard.level !== 'danger') {
-                    // Short TTL — depth re-runs every 600ms, stale data clears fast
-                    const ttl = hazard.level === 'danger' ? 1200 : 900;
-                    state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
-                    speakAlert(hazard.key, hazard.speak);
-                    if (hazard.level === 'danger') {
-                        vibrateAlert('danger');
-                        playAlertSound('ahead', 'danger');
-                    } else {
-                        vibrateAlert('warning');
-                        playAlertSound('ahead', 'warning');
-                    }
+                if (!hazard) { state.depthHazard = null; return; }
+                const ttl = hazard.level === 'danger' ? 1200 : 900;
+                state.depthHazard = { ...hazard, expiry: Date.now() + ttl };
+                speakAlert(hazard.key, hazard.speak);
+                if (hazard.level === 'danger') {
+                    vibrateAlert('danger');
+                    playAlertSound('ahead', 'danger');
+                } else {
+                    vibrateAlert('warning');
+                    playAlertSound('ahead', 'warning');
                 }
             });
         }
 
-        // EXPIRE stale AI hazard
-        if (state.aiHazard && now > state.aiHazard.expiry) {
-            state.aiHazard = null;
-        }
+        // EXPIRE stale hazards
+        if (state.aiHazard && now > state.aiHazard.expiry) state.aiHazard = null;
+        if (state.depthHazard && now > state.depthHazard.expiry) state.depthHazard = null;
 
-        // MERGE active AI hazard into threat level
-        // AI hazard persists across loop iterations so walls/doors keep alerting
-        if (state.aiHazard) {
-            const ah = state.aiHazard;
-            if (ah.level === 'danger' && highestThreat !== 'danger') {
+        // MERGE depth + AI hazards into threat level (depth and AI are independent)
+        for (const hz of [state.depthHazard, state.aiHazard]) {
+            if (!hz) continue;
+            if (hz.level === 'danger' && highestThreat !== 'danger') {
                 highestThreat = 'danger';
                 if (!mostDangerous) {
-                    mostDangerous = { name: ah.key, position: 'ahead', distance: 0.8,
+                    mostDangerous = { name: hz.key, position: 'ahead', distance: 0.8,
                         inPath: true, confidence: 1.0, danger: 'obstacle', fromAI: true,
-                        displayLabel: ah.label, uiDetail: ah.uiDetail };
+                        displayLabel: hz.label, uiDetail: hz.uiDetail };
                 }
-            } else if (ah.level === 'warning' && highestThreat === 'safe') {
+            } else if (hz.level === 'warning' && highestThreat === 'safe') {
                 highestThreat = 'warning';
                 if (!mostDangerous) {
-                    mostDangerous = { name: ah.key, position: 'ahead', distance: 1.5,
+                    mostDangerous = { name: hz.key, position: 'ahead', distance: 1.5,
                         inPath: true, confidence: 1.0, danger: 'obstacle', fromAI: true,
-                        displayLabel: ah.label, uiDetail: ah.uiDetail };
+                        displayLabel: hz.label, uiDetail: hz.uiDetail };
                 }
             }
         }
@@ -1423,71 +1423,60 @@
             }).catch(() => { state.aiScanInProgress = false; });
         }
 
-        // UPDATE UI AND ALERTS
-        // Speech/sound only fires on status change, or re-announces sustained danger every 5s
-        const statusChanged = highestThreat !== state.lastStatus;
+        // UPDATE UI AND ALERTS — single code path, always runs, always in sync
+        const statusChanged = highestThreat !== state.currentStatus;
         const sustainedDanger = highestThreat === 'danger' && now - state.lastDangerAnnounce > 3000;
         const shouldSound = statusChanged || now - state.lastAlertSound > 2000;
 
-        if (!state.isPaused) {
-            if (highestThreat === 'danger') {
-                const label = mostDangerous
-                    ? (mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase())
-                    : 'OBSTACLE';
-                const detail = mostDangerous?.uiDetail || 'Very close ahead';
-                const pos = mostDangerous?.position || 'ahead';
-                updateUI('danger', '!', `STOP! ${label}!`, detail);
-                updateDirections(pos, 'danger');
-                if (shouldSound) {
-                    playAlertSound(pos, 'danger');
-                    vibrateAlert('danger');
-                    state.lastAlertSound = now;
-                }
-                if ((statusChanged || sustainedDanger) && mostDangerous && !mostDangerous.fromAI) {
-                    const displayName = getDisplayName(mostDangerous);
-                    const escapeDir = pos === 'left' ? 'right' : pos === 'right' ? 'left' : 'back';
-                    speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`);
-                    state.lastDangerAnnounce = now;
-                }
-
-            } else if (highestThreat === 'warning') {
-                const label = mostDangerous
-                    ? (mostDangerous.displayLabel || getDisplayName(mostDangerous))
-                    : 'Obstacle';
-                const detail = mostDangerous?.uiDetail || 'Caution ahead';
-                const pos = mostDangerous?.position || 'ahead';
-                updateUI('warning', '!', `${label} ahead`, detail);
-                updateDirections(pos, 'warning');
-                if (statusChanged && shouldSound) {
-                    playAlertSound(pos, 'warning');
-                    vibrateAlert('warning');
-                    state.lastAlertSound = now;
-                }
-                if (statusChanged && mostDangerous && !mostDangerous.fromAI) {
-                    const displayName = getDisplayName(mostDangerous);
-                    speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`);
-                }
-
-            } else {
-                updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
-                updateDirections(null, 'safe');
-                state.lastDangerAnnounce = 0;
+        if (highestThreat === 'danger') {
+            const label = mostDangerous
+                ? (mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase())
+                : 'OBSTACLE';
+            const detail = mostDangerous?.uiDetail || 'Very close ahead';
+            const pos = mostDangerous?.position || 'ahead';
+            updateUI('danger', '!', `STOP! ${label}!`, detail);
+            updateDirections(pos, 'danger');
+            if (!state.isPaused && shouldSound) {
+                playAlertSound(pos, 'danger');
+                vibrateAlert('danger');
+                state.lastAlertSound = now;
             }
+            if (!state.isPaused && (statusChanged || sustainedDanger) && mostDangerous && !mostDangerous.fromAI) {
+                const displayName = getDisplayName(mostDangerous);
+                const escapeDir = pos === 'left' ? 'right' : pos === 'right' ? 'left' : 'back';
+                speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`);
+                state.lastDangerAnnounce = now;
+            }
+
+        } else if (highestThreat === 'warning') {
+            const label = mostDangerous
+                ? (mostDangerous.displayLabel || getDisplayName(mostDangerous))
+                : 'Obstacle';
+            const detail = mostDangerous?.uiDetail || 'Caution ahead';
+            const pos = mostDangerous?.position || 'ahead';
+            updateUI('warning', '!', `${label} ahead`, detail);
+            updateDirections(pos, 'warning');
+            if (!state.isPaused && statusChanged && shouldSound) {
+                playAlertSound(pos, 'warning');
+                vibrateAlert('warning');
+                state.lastAlertSound = now;
+            }
+            if (!state.isPaused && statusChanged && mostDangerous && !mostDangerous.fromAI) {
+                const displayName = getDisplayName(mostDangerous);
+                speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`);
+            }
+
+        } else {
+            updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
+            updateDirections(null, 'safe');
+            state.lastDangerAnnounce = 0;
         }
 
-        state.lastStatus = state.currentStatus;
+        // Update status AFTER UI so statusChanged comparison works correctly
         state.currentStatus = highestThreat;
         state.currentObstacle = mostDangerous;
 
-        // FORCE color sync — guarantees badge, box, and text always match
-        const badge = document.getElementById('statusBadge');
-        const box = document.getElementById('alertBox');
-        if (badge) {
-            badge.className = `status-badge badge-${highestThreat}`;
-            badge.textContent = highestThreat === 'safe' ? 'SAFE' : highestThreat === 'warning' ? 'CAUTION' : 'DANGER';
-        }
-        if (box) box.className = `alert-box ${highestThreat}`;
-
+        _loopRunning = false;
         setTimeout(protectionLoop, CONFIG.LOCAL_SCAN_INTERVAL);
     }
     
