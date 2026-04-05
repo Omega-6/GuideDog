@@ -1177,20 +1177,23 @@
         if (hist.length < 2) return null;
 
         // ── APPROACH RATE: works without calibration ──────────────────────────────
-        // If center depth is rising fast (object getting closer), warn immediately.
-        // This is the most reliable signal — doesn't depend on absolute values.
+        // Only triggers if depth is rising FAST and CONSISTENTLY across 3+ frames.
+        // Higher thresholds prevent false triggers from camera exposure drift.
         const prev = hist[hist.length - 2];
-        const ratePerFrame = c - prev.c;  // positive = getting closer
 
-        if (hist.length >= 3) {
-            const prev2 = hist[hist.length - 3];
-            const avgRate = (c - prev2.c) / 2;
-            if (avgRate > 12) {
+        if (hist.length >= 4) {
+            const prev3 = hist[hist.length - 4];
+            const avgRate = (c - prev3.c) / 3;  // average over 3 frames
+            // Also require each consecutive frame to be rising (not just endpoints)
+            const rising = hist.slice(-3).every((h, i, a) =>
+                i === 0 || h.c > a[i-1].c + 1  // each frame must be >1 higher than previous
+            );
+            if (rising && avgRate > 15) {
                 return { level: 'danger', key: 'depth_approaching_fast',
                     label: 'APPROACHING FAST', speak: 'Stop',
                     uiDetail: 'Something approaching quickly', fromDepth: true };
             }
-            if (avgRate > 6) {
+            if (rising && avgRate > 8) {
                 return { level: 'warning', key: 'depth_approaching',
                     label: 'APPROACHING', speak: 'Slow',
                     uiDetail: 'Something getting closer', fromDepth: true };
@@ -1220,23 +1223,24 @@
         }
 
         // ── UNCALIBRATED FALLBACK (raw 0-255 values) ─────────────────────────────
+        // Thresholds lowered: wall at 4ft reads ~140-160 on most phones.
         const scene = (c + l + r) / 3;
         if (scene < 1) return null;
 
         // Center zone (catches walls head-on)
-        if (c > 195) {
+        if (c > 180) {
             return { level: 'danger', key: 'depth_close',
                 label: 'WALL/OBSTACLE', speak: 'Stop',
                 uiDetail: 'Very close ahead', fromDepth: true };
         }
-        if (c > 160) {
+        if (c > 140) {
             return { level: 'warning', key: 'depth_near',
-                label: 'OBSTACLE AHEAD', speak: 'Slow',
-                uiDetail: 'Close surface ahead', fromDepth: true };
+                label: 'SURFACE AHEAD', speak: 'Slow',
+                uiDetail: 'Surface ahead', fromDepth: true };
         }
 
         // Scene average (enclosed spaces)
-        if (scene > 185) {
+        if (scene > 165) {
             return { level: 'danger', key: 'depth_scene',
                 label: 'ENCLOSED', speak: 'Stop',
                 uiDetail: 'Surfaces very close all sides', fromDepth: true };
