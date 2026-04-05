@@ -1372,6 +1372,39 @@
         }
     }
 
+    // ========== FAST HAZARD LOOP (50ms — wall check only, independent of COCO-SSD) ==========
+    // Runs 20x/sec regardless of how slow the ML detection loop is.
+    // Only does the pixel-variance wall check (<5ms) and updates UI directly.
+    function fastHazardLoop() {
+        if (!state.isRunning || !state.video || state.video.videoWidth === 0) {
+            setTimeout(fastHazardLoop, 100);
+            return;
+        }
+
+        const wallResult = fastWallCheck();
+        const now = Date.now();
+
+        if (wallResult) {
+            state.depthHazard = { ...wallResult, expiry: now + 800 };
+
+            // Update UI immediately — don't wait for the main loop
+            updateUI(wallResult.level, '!',
+                wallResult.level === 'danger' ? `STOP! ${wallResult.label}!` : `${wallResult.label} ahead`,
+                wallResult.uiDetail);
+            updateDirections('ahead', wallResult.level);
+            state.currentStatus = wallResult.level;
+
+            speakAlert(wallResult.key, wallResult.speak, wallResult.level === 'danger' ? 3 : 2);
+            if (wallResult.level === 'danger' && now - (state._lastWallSound || 0) > 1000) {
+                vibrateAlert('danger');
+                playAlertSound('ahead', 'danger');
+                state._lastWallSound = now;
+            }
+        }
+
+        setTimeout(fastHazardLoop, 50);
+    }
+
     // ========== MAIN PROTECTION LOOP ==========
     // Smoothing: escalate instantly, require 2 consecutive safe readings to de-escalate.
     let _threatHistory = [];
@@ -1390,16 +1423,7 @@
 
         const now = Date.now();
 
-        // FAST WALL CHECK — instant, no ML, runs every cycle (<5ms)
-        const wallResult = fastWallCheck();
-        if (wallResult) {
-            state.depthHazard = { ...wallResult, expiry: now + 800 };
-            speakAlert(wallResult.key, wallResult.speak, wallResult.level === 'danger' ? 3 : 2);
-            if (wallResult.level === 'danger') {
-                vibrateAlert('danger');
-                playAlertSound('ahead', 'danger');
-            }
-        }
+        // Wall check now runs in fastHazardLoop (50ms) — not here
 
         // LOCAL DETECTION — time it
         const t0 = performance.now();
@@ -1749,6 +1773,7 @@
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
+        fastHazardLoop();
     }
     
     // ========== INIT ==========
@@ -1807,9 +1832,9 @@
             privacyAccept.addEventListener('click', showHelp, { once: true });
         } else {
             // Returning user — audio locked until first touch (iOS requirement).
-            // Document-level touchstart handler calls unlockAudio().
             state.isRunning = true;
             protectionLoop();
+            fastHazardLoop();
         }
     }
     
