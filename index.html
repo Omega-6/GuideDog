@@ -1426,43 +1426,48 @@
         const shouldSound = statusChanged || now - state.lastAlertSound > 2000;
 
         if (!state.isPaused) {
-            if (highestThreat === 'danger' && mostDangerous) {
-                const label = mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase();
-                const detail = mostDangerous.uiDetail || `Very close ${mostDangerous.position}`;
+            if (highestThreat === 'danger') {
+                const label = mostDangerous
+                    ? (mostDangerous.displayLabel || getDisplayName(mostDangerous).toUpperCase())
+                    : 'OBSTACLE';
+                const detail = mostDangerous?.uiDetail || 'Very close ahead';
+                const pos = mostDangerous?.position || 'ahead';
                 updateUI('danger', '!', `STOP! ${label}!`, detail);
-                updateDirections(mostDangerous.position, 'danger');
+                updateDirections(pos, 'danger');
                 if (shouldSound) {
-                    playAlertSound(mostDangerous.position, 'danger');
+                    playAlertSound(pos, 'danger');
                     vibrateAlert('danger');
                     state.lastAlertSound = now;
                 }
-                if ((statusChanged || sustainedDanger) && !mostDangerous.fromAI) {
+                if ((statusChanged || sustainedDanger) && mostDangerous && !mostDangerous.fromAI) {
                     const displayName = getDisplayName(mostDangerous);
-                    const escapeDir = mostDangerous.position === 'left' ? 'right' :
-                                      mostDangerous.position === 'right' ? 'left' : 'back';
+                    const escapeDir = pos === 'left' ? 'right' : pos === 'right' ? 'left' : 'back';
                     speakAlert(`danger_${mostDangerous.name}`, `${displayName}. Go ${escapeDir}.`);
                     state.lastDangerAnnounce = now;
                 }
 
-            } else if (highestThreat === 'warning' && mostDangerous) {
-                const label = mostDangerous.displayLabel || getDisplayName(mostDangerous);
-                const detail = mostDangerous.uiDetail || `About ${(mostDangerous.distance * 3.28084).toFixed(1)} ft ${mostDangerous.position}`;
+            } else if (highestThreat === 'warning') {
+                const label = mostDangerous
+                    ? (mostDangerous.displayLabel || getDisplayName(mostDangerous))
+                    : 'Obstacle';
+                const detail = mostDangerous?.uiDetail || 'Caution ahead';
+                const pos = mostDangerous?.position || 'ahead';
                 updateUI('warning', '!', `${label} ahead`, detail);
-                updateDirections(mostDangerous.position, 'warning');
+                updateDirections(pos, 'warning');
                 if (statusChanged && shouldSound) {
-                    playAlertSound(mostDangerous.position, 'warning');
+                    playAlertSound(pos, 'warning');
                     vibrateAlert('warning');
                     state.lastAlertSound = now;
                 }
-                if (statusChanged && !mostDangerous.fromAI) {
+                if (statusChanged && mostDangerous && !mostDangerous.fromAI) {
                     const displayName = getDisplayName(mostDangerous);
-                    speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${mostDangerous.position}`);
+                    speakAlert(`warning_${mostDangerous.name}`, `Caution, ${displayName} ${pos}`);
                 }
 
             } else {
                 updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
                 updateDirections(null, 'safe');
-                state.lastDangerAnnounce = 0;  // reset so next danger re-announces immediately
+                state.lastDangerAnnounce = 0;
             }
         }
 
