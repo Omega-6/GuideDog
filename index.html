@@ -760,17 +760,32 @@
         }
     }
 
+    let _aiFailCount = 0;
+    let _aiBackoffUntil = 0;
+
     async function fetchAI(imageData, provider, mode = 'background', context = '') {
+        // Back off if worker keeps failing (prevents hammering a broken endpoint)
+        if (Date.now() < _aiBackoffUntil) return null;
+
         try {
             const response = await fetch(CONFIG.WORKER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ image: imageData, provider, mode, context })
             });
+            if (!response.ok) {
+                _aiFailCount++;
+                // Exponential backoff: 10s, 20s, 40s, 60s max
+                _aiBackoffUntil = Date.now() + Math.min(10000 * Math.pow(2, _aiFailCount - 1), 60000);
+                console.warn(`AI ${provider}: ${response.status}, backing off ${Math.min(10 * Math.pow(2, _aiFailCount - 1), 60)}s`);
+                return null;
+            }
+            _aiFailCount = 0;  // reset on success
             const data = await response.json();
             return data.result || null;
         } catch (e) {
-            console.error(`AI ${provider} error:`, e);
+            _aiFailCount++;
+            _aiBackoffUntil = Date.now() + Math.min(10000 * Math.pow(2, _aiFailCount - 1), 60000);
             return null;
         }
     }
