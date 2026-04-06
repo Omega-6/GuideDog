@@ -251,10 +251,24 @@
 <body>
     <div class="loading" id="loading" style="display:none;"></div>
     <script>
-    // Show privacy screen immediately — don't wait for heavy scripts to load
     document.addEventListener('DOMContentLoaded', () => {
         const p = document.getElementById('privacyNotice');
-        if (p) p.style.display = 'flex';
+        if (p) {
+            p.style.display = 'flex';
+            // Tap anywhere to dismiss — works before scripts load
+            p.addEventListener('click', () => {
+                p.style.display = 'none';
+                const h = document.getElementById('help');
+                if (h) {
+                    h.classList.add('visible');
+                    // Help screen dismiss — also works before scripts load
+                    h.addEventListener('click', () => {
+                        h.classList.remove('visible');
+                        window._helpDismissed = true;
+                    }, { once: true });
+                }
+            }, { once: true });
+        }
     });
     </script>
     
@@ -1803,12 +1817,17 @@
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
         try { speechSynthesis.cancel(); } catch(e){}
-        unlockAudio();
-        speak('GuideDog active.', true);
-        state.isRunning = true;
-        state.isPaused = false;
-        protectionLoop();
-        fastHazardLoop();
+        window._helpDismissed = true;
+        // Only start if models are loaded (init has run)
+        if (typeof unlockAudio === 'function') unlockAudio();
+        if (typeof state !== 'undefined' && state.model) {
+            speak('GuideDog active.', true);
+            state.isRunning = true;
+            state.isPaused = false;
+            protectionLoop();
+            fastHazardLoop();
+        }
+        // If models aren't ready yet, init() will call hideHelp() when it sees _helpDismissed
     }
     
     // ========== INIT ==========
@@ -1820,22 +1839,13 @@
 
         document.getElementById('helpClose').addEventListener('click', hideHelp);
 
-        const privacyNotice = document.getElementById('privacyNotice');
+        // Privacy/help screens already shown by DOMContentLoaded script.
+        // If user already dismissed them before init() ran, start immediately.
+        if (window._helpDismissed) {
+            hideHelp();
+        }
 
-        // Show privacy screen IMMEDIATELY — models load while user reads
-        document.getElementById('loading').style.display = 'none';
-        privacyNotice.style.display = 'flex';
-
-        const dismissPrivacy = () => {
-            try { speechSynthesis.cancel(); } catch(e){}
-            unlockAudio();
-            privacyNotice.style.display = 'none';
-            privacyNotice.removeEventListener('click', dismissPrivacy);
-            showHelp();
-        };
-        privacyNotice.addEventListener('click', dismissPrivacy);
-
-        // Load models in background while user reads privacy/help screens
+        // Load models (user is reading privacy/help screens during this)
         try {
             state.model = await cocoSsd.load();
         } catch (e) {
@@ -1854,6 +1864,14 @@
         }
 
         initDepthModel();
+
+        // If user already dismissed help screens, start now
+        if (window._helpDismissed) {
+            unlockAudio();
+            speak('GuideDog active.', true);
+            state.isRunning = true;
+            state.isPaused = false;
+            protectionLoop();
             fastHazardLoop();
         }
     }
