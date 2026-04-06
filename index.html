@@ -253,11 +253,14 @@
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const p = document.getElementById('privacyNotice');
-        if (p) {
-            p.style.display = 'flex';
-            p.addEventListener('click', () => {
-                p.style.display = 'none';
-                // This tap unlocks audio on iOS Safari
+        if (!p) return;
+        p.style.display = 'flex';
+        let privacyRead = false;
+
+        p.addEventListener('click', () => {
+            if (!privacyRead) {
+                // FIRST TAP — unlock audio and read privacy aloud
+                privacyRead = true;
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
                     ctx.resume();
@@ -265,32 +268,49 @@
                     primer.volume = 0; primer.rate = 10;
                     speechSynthesis.speak(primer);
                 } catch(e){}
+                setTimeout(() => {
+                    try {
+                        const u = new SpeechSynthesisUtterance(
+                            'Privacy and permissions. ' +
+                            'GuideDog needs camera access to detect obstacles. All detection runs on your device. ' +
+                            'When you scan, a photo may be sent to cloud A.I. No images are stored. ' +
+                            'No account required. No personal data collected. ' +
+                            'Tap again to continue.'
+                        );
+                        u.rate = 1.0; u.volume = 1.0;
+                        speechSynthesis.speak(u);
+                    } catch(e){}
+                }, 200);
+                return;
+            }
 
-                const h = document.getElementById('help');
-                if (h) {
-                    h.classList.add('visible');
-                    // Now speak the help — audio is unlocked from the privacy tap
-                    setTimeout(() => {
-                        try {
-                            const u = new SpeechSynthesisUtterance(
-                                'GuideDog protects you automatically. ' +
-                                'Double tap to scan. Hold to speak. Swipe to check sides. ' +
-                                'Tap anywhere to start.'
-                            );
-                            u.rate = 1.0; u.volume = 1.0;
-                            speechSynthesis.speak(u);
-                        } catch(e){}
-                    }, 300);
+            // SECOND TAP — dismiss privacy, show help
+            try { speechSynthesis.cancel(); } catch(e){}
+            p.style.display = 'none';
 
-                    h.addEventListener('click', () => {
-                        try { speechSynthesis.cancel(); } catch(e){}
-                        h.classList.remove('visible');
-                        window._helpDismissed = true;
-                        if (typeof startApp === 'function') startApp();
-                    }, { once: true });
-                }
-            }, { once: true });
-        }
+            const h = document.getElementById('help');
+            if (h) {
+                h.classList.add('visible');
+                setTimeout(() => {
+                    try {
+                        const u = new SpeechSynthesisUtterance(
+                            'GuideDog protects you automatically. ' +
+                            'Double tap to scan. Hold to speak. Swipe to check sides. ' +
+                            'Tap anywhere to start.'
+                        );
+                        u.rate = 1.0; u.volume = 1.0;
+                        speechSynthesis.speak(u);
+                    } catch(e){}
+                }, 300);
+
+                h.addEventListener('click', () => {
+                    try { speechSynthesis.cancel(); } catch(e){}
+                    h.classList.remove('visible');
+                    window._helpDismissed = true;
+                    if (typeof startApp === 'function') startApp();
+                }, { once: true });
+            }
+        });
     });
     </script>
     
@@ -315,7 +335,7 @@
             <div class="help-desc">No personal data is collected. No sign-up needed.</div>
         </div>
         <button class="help-close" id="privacyAccept">I Understand — Continue</button>
-        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to continue</div>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap once to hear aloud · Tap again to continue</div>
     </div>
 
     <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
