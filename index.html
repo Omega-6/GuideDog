@@ -1820,9 +1820,12 @@
         window._helpDismissed = true;
     }
 
-    // Called once both conditions are met: help dismissed AND models loaded
+    // Called once BOTH conditions are met: help dismissed AND models loaded
     function startApp() {
         if (window._appStarted) return;
+        // Don't start until BOTH conditions are true
+        if (!window._helpDismissed) return;
+        if (typeof state === 'undefined' || !state.model || !state.video) return;
         window._appStarted = true;
         unlockAudio();
         speak('GuideDog active.', true);
