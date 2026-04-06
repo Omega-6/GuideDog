@@ -1818,20 +1818,26 @@
         document.getElementById('helpClose').addEventListener('click', hideHelp);
 
         const privacyNotice = document.getElementById('privacyNotice');
-        const privacyAccept = document.getElementById('privacyAccept');
 
-        document.getElementById('loadingText').textContent = 'Loading detection model…';
+        // Show privacy screen IMMEDIATELY — models load while user reads
+        document.getElementById('loading').style.display = 'none';
+        privacyNotice.style.display = 'flex';
 
+        const dismissPrivacy = () => {
+            try { speechSynthesis.cancel(); } catch(e){}
+            unlockAudio();
+            privacyNotice.style.display = 'none';
+            privacyNotice.removeEventListener('click', dismissPrivacy);
+            showHelp();
+        };
+        privacyNotice.addEventListener('click', dismissPrivacy);
+
+        // Load models in background while user reads privacy/help screens
         try {
             state.model = await cocoSsd.load();
         } catch (e) {
             console.error('Model load error:', e);
-            document.getElementById('loadingText').textContent = 'Failed to load model. Please reload the page.';
-            speak('Error loading detection model. Please reload the page.', true);
-            return;
         }
-
-        document.getElementById('loadingText').textContent = 'Starting camera…';
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -1841,24 +1847,10 @@
             state.video.srcObject = stream;
             await state.video.play();
         } catch (e) {
-            document.getElementById('loadingText').textContent = 'Camera access required.';
-            speak('Camera access is required. Please allow camera access and reload the page.', true);
-            return;
+            console.warn('Camera error:', e);
         }
 
-        document.getElementById('loading').classList.add('hidden');
         initDepthModel();
-
-        // Show privacy → help → start flow every launch
-        privacyNotice.style.display = 'flex';
-        const dismissPrivacy = () => {
-            try { speechSynthesis.cancel(); } catch(e){}
-            unlockAudio();
-            privacyNotice.style.display = 'none';
-            privacyNotice.removeEventListener('click', dismissPrivacy);
-            showHelp();
-        };
-        privacyNotice.addEventListener('click', dismissPrivacy);
             fastHazardLoop();
         }
     }
