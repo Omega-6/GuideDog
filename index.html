@@ -249,11 +249,14 @@
     </style>
 </head>
 <body>
-    <div class="loading" id="loading">
-        <div class="loading-spinner"></div>
-        <div class="loading-text" id="loadingText">Loading, please wait a moment</div>
-        <div class="loading-subtext">Best Works on Mobile Devices</div>
-    </div>
+    <div class="loading" id="loading" style="display:none;"></div>
+    <script>
+    // Show privacy screen immediately — don't wait for heavy scripts to load
+    document.addEventListener('DOMContentLoaded', () => {
+        const p = document.getElementById('privacyNotice');
+        if (p) p.style.display = 'flex';
+    });
+    </script>
     
     <noscript>
         <div style="position:fixed;inset:0;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;font-family:sans-serif;font-size:18px;">
