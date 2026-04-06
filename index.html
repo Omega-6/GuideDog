@@ -257,13 +257,35 @@
             p.style.display = 'flex';
             p.addEventListener('click', () => {
                 p.style.display = 'none';
+                // This tap unlocks audio on iOS Safari
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    ctx.resume();
+                    const primer = new SpeechSynthesisUtterance(' ');
+                    primer.volume = 0; primer.rate = 10;
+                    speechSynthesis.speak(primer);
+                } catch(e){}
+
                 const h = document.getElementById('help');
                 if (h) {
                     h.classList.add('visible');
+                    // Now speak the help — audio is unlocked from the privacy tap
+                    setTimeout(() => {
+                        try {
+                            const u = new SpeechSynthesisUtterance(
+                                'GuideDog protects you automatically. ' +
+                                'Double tap to scan. Hold to speak. Swipe to check sides. ' +
+                                'Tap anywhere to start.'
+                            );
+                            u.rate = 1.0; u.volume = 1.0;
+                            speechSynthesis.speak(u);
+                        } catch(e){}
+                    }, 300);
+
                     h.addEventListener('click', () => {
+                        try { speechSynthesis.cancel(); } catch(e){}
                         h.classList.remove('visible');
                         window._helpDismissed = true;
-                        // Try to start — will succeed if models are ready
                         if (typeof startApp === 'function') startApp();
                     }, { once: true });
                 }
