@@ -395,7 +395,7 @@
         AWARENESS_ZONE: 4.0,   // < 4m = awareness
         
         // Timing
-        AI_SCAN_INTERVAL: 5000,      // AI scan every 5s — prevents overlapping requests and reduces noise
+        AI_SCAN_INTERVAL: 8000,      // AI scan every 8s — cloud AI compensates for no LiDAR
         DEPTH_SCAN_INTERVAL: 400,    // depth model every 400ms (was 600)
         LOCAL_SCAN_INTERVAL: 200,    // Local detection every 200ms (was 300)
         VOICE_COOLDOWN: 1500,        // Don't repeat same alert for 1.5s (was 2s)
@@ -1486,7 +1486,7 @@
     let _loopRunning = false;  // prevents multiple protectionLoop instances
 
     async function protectionLoop() {
-        if (_loopRunning) return;  // prevent duplicate loops
+        if (_loopRunning) return;
         _loopRunning = true;
 
         if (!state.isRunning) {
@@ -1495,11 +1495,9 @@
             return;
         }
 
+      try {
         const now = Date.now();
 
-        // Wall check now runs in fastHazardLoop (50ms) — not here
-
-        // LOCAL DETECTION — time it
         const t0 = performance.now();
         state.localDetections = await detectLocal();
         const detectMs = Math.round(performance.now() - t0);
@@ -1608,8 +1606,13 @@
                     return;
                 }
 
-                const ttl = hazard.level === 'danger' ? 3000 : 2000;
+                const ttl = hazard.level === 'danger' ? 4000 : 3000;
                 state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+
+                // No LiDAR on web — cloud AI is critical, speak results directly
+                if (hazard.speak) {
+                    speakAlert(hazard.key, hazard.speak, hazard.level === 'danger' ? 3 : 2);
+                }
             }).catch(() => { state.aiScanInProgress = false; });
         }
 
@@ -1617,6 +1620,9 @@
         state._mainThreat = highestThreat;
         state.currentObstacle = mostDangerous;
 
+      } catch (e) {
+        console.error('protectionLoop error:', e);
+      }
         _loopRunning = false;
         setTimeout(protectionLoop, CONFIG.LOCAL_SCAN_INTERVAL);
     }
