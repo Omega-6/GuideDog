@@ -255,16 +255,16 @@
         const p = document.getElementById('privacyNotice');
         if (p) {
             p.style.display = 'flex';
-            // Tap anywhere to dismiss — works before scripts load
             p.addEventListener('click', () => {
                 p.style.display = 'none';
                 const h = document.getElementById('help');
                 if (h) {
                     h.classList.add('visible');
-                    // Help screen dismiss — also works before scripts load
                     h.addEventListener('click', () => {
                         h.classList.remove('visible');
                         window._helpDismissed = true;
+                        // Try to start — will succeed if models are ready
+                        if (typeof startApp === 'function') startApp();
                     }, { once: true });
                 }
             }, { once: true });
@@ -1818,16 +1818,18 @@
         document.getElementById('help').classList.remove('visible');
         try { speechSynthesis.cancel(); } catch(e){}
         window._helpDismissed = true;
-        // Only start if models are loaded (init has run)
-        if (typeof unlockAudio === 'function') unlockAudio();
-        if (typeof state !== 'undefined' && state.model) {
-            speak('GuideDog active.', true);
-            state.isRunning = true;
-            state.isPaused = false;
-            protectionLoop();
-            fastHazardLoop();
-        }
-        // If models aren't ready yet, init() will call hideHelp() when it sees _helpDismissed
+    }
+
+    // Called once both conditions are met: help dismissed AND models loaded
+    function startApp() {
+        if (window._appStarted) return;
+        window._appStarted = true;
+        unlockAudio();
+        speak('GuideDog active.', true);
+        state.isRunning = true;
+        state.isPaused = false;
+        protectionLoop();
+        fastHazardLoop();
     }
     
     // ========== INIT ==========
@@ -1837,15 +1839,9 @@
         initSpeechRecognition();
         setupGestures();
 
-        document.getElementById('helpClose').addEventListener('click', hideHelp);
+        document.getElementById('helpClose').addEventListener('click', () => { hideHelp(); startApp(); });
 
-        // Privacy/help screens already shown by DOMContentLoaded script.
-        // If user already dismissed them before init() ran, start immediately.
-        if (window._helpDismissed) {
-            hideHelp();
-        }
-
-        // Load models (user is reading privacy/help screens during this)
+        // Load models while user reads privacy/help screens
         try {
             state.model = await cocoSsd.load();
         } catch (e) {
@@ -1865,14 +1861,9 @@
 
         initDepthModel();
 
-        // If user already dismissed help screens, start now
+        // Models ready — try to start (will succeed if user already dismissed help)
         if (window._helpDismissed) {
-            unlockAudio();
-            speak('GuideDog active.', true);
-            state.isRunning = true;
-            state.isPaused = false;
-            protectionLoop();
-            fastHazardLoop();
+            startApp();
         }
     }
     
