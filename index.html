@@ -245,6 +245,7 @@
         .help-desc { font-size: 14px; color: #aaa; margin-top: 5px; }
         .help-close { margin-top: 20px; padding: 20px; background: #48f; border: none; border-radius: 15px; color: #fff; font-size: 18px; font-weight: 700; }
         .version-tag { position: fixed; bottom: max(6px, env(safe-area-inset-bottom)); right: 8px; font-size: 10px; color: rgba(255,255,255,0.3); z-index: 5; pointer-events: none; }
+        .gesture-hint { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 15px; text-align: center; }
     </style>
 </head>
 <body>
@@ -299,46 +300,24 @@
         <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
     </div>
     
-    <div class="version-tag" id="versionTag">build 23</div>
+    <div class="version-tag" id="versionTag">build 25c-cloudai</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
         
         <div class="overlay">
             <div class="status-bar">
-                <div class="status-badge badge-safe" id="statusBadge">SAFE</div>
-                <div class="ai-badge" id="aiBadge">AI Active</div>
+                <div class="status-badge" id="statusBadge" style="display:none;">SAFE</div>
+                <div class="ai-badge" id="aiBadge" aria-hidden="true">AI Active</div>
             </div>
-            
+
             <div class="alert-area" id="alertArea">
                 <div class="alert-box safe" id="alertBox" role="alert" aria-live="assertive" aria-atomic="true">
-                    <div class="alert-icon" id="alertIcon">OK</div>
+                    <div class="alert-icon" id="alertIcon" aria-hidden="true">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
                 </div>
-
-                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;text-align:center;"></div>
-
-                <div class="direction-row">
-                    <div class="direction-btn" id="dirLeft">L</div>
-                    <div class="direction-btn" id="dirAhead">F</div>
-                    <div class="direction-btn" id="dirRight">R</div>
-                </div>
-            </div>
-            
-            <div class="control-bar">
-                <button class="ctrl-btn tall" id="btnDescribe">
-                    <span class="icon">?</span>
-                    <span>What's Around</span>
-                </button>
-                <button class="ctrl-btn mic" id="btnMic">
-                    <span class="icon">M</span>
-                    <span>Speak</span>
-                </button>
-                <button class="ctrl-btn tall" id="btnSafe">
-                    <span class="icon">&#10003;</span>
-                    <span>Is It Safe</span>
-                </button>
+                <div class="gesture-hint" id="gestureHint">Double-tap to scan</div>
             </div>
         </div>
     </div>
@@ -609,10 +588,10 @@
             try { speechSynthesis.cancel(); } catch(e){}
             // iOS needs a tiny delay after cancel
             setTimeout(() => doSpeak(text, 1.3), 50);
-        } else if (!speechSynthesis.speaking) {
+        } else {
+            // Non-danger: speak if nothing playing, or queue if short
             doSpeak(text, 1.1);
         }
-        // If something is already speaking and this isn't danger, skip — don't queue
         _currentSpeechPriority = priority;
     }
     
@@ -1579,26 +1558,7 @@
             });
         }
 
-        // AI SCAN — fire async, set hazard (no UI/speech — fast loop handles that)
-        if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused && !state.aiScanInProgress) {
-            state.lastAIScan = now;
-            state.aiScanInProgress = true;
-
-            analyzeWithAI('background').then(result => {
-                state.aiScanInProgress = false;
-                if (!result) return;
-                state.aiResult = result;
-                const hazard = parseAIResult(result);
-
-                if (hazard.level === 'clear') {
-                    state.aiHazard = null;
-                    return;
-                }
-
-                const ttl = hazard.level === 'danger' ? 3000 : 2000;
-                state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
-            }).catch(() => { state.aiScanInProgress = false; });
-        }
+        // AI SCAN removed from main loop — now runs in its own cloudAILoop()
 
         // Store COCO-SSD threat for fast loop to pick up (no UI here)
         state._mainThreat = highestThreat;
@@ -1706,45 +1666,139 @@
     
     // ========== GESTURES ==========
     function setupGestures() {
-        const area = document.getElementById('alertArea');
-        let touchStart = { x: 0, y: 0, time: 0 };
-        
-        area.addEventListener('touchstart', e => {
+        let holdTimer = null;
+        let lastTap = 0;
+        let holdFired = false;
+        let touchStartX = 0;
+
+        document.body.addEventListener('touchstart', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
             unlockAudio();
-            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+            holdFired = false;
+            touchStartX = e.touches[0].clientX;
+            holdTimer = setTimeout(() => {
+                holdFired = true;
+                vibrate([50]);
+                speak('Listening', true);
+                startListening();
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Listening...';
+            }, 600);
         }, { passive: true });
-        
-        area.addEventListener('touchend', e => {
-            const dx = e.changedTouches[0].clientX - touchStart.x;
-            const dy = e.changedTouches[0].clientY - touchStart.y;
-            const duration = Date.now() - touchStart.time;
-            
-            if (duration > 1500) {
-                showHelp();
+
+        document.body.addEventListener('touchend', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
+            clearTimeout(holdTimer);
+
+            if (holdFired) {
+                setTimeout(() => {
+                    stopListening();
+                    const hint = document.getElementById('gestureHint');
+                    if (hint) hint.textContent = 'Double-tap to scan';
+                }, 3000);
                 return;
             }
-            
+
             // Swipe
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+            const dx = e.changedTouches[0].clientX - touchStartX;
+            if (Math.abs(dx) > 80) {
                 speakDirection(dx > 0 ? 'right' : 'left');
+                lastTap = 0;
                 return;
             }
-            
-            // Tap zones
-            const y = e.changedTouches[0].clientY / window.innerHeight;
-            if (y < 0.4) {
-                describeArea();
-            } else if (y > 0.6) {
-                triggerAIScan();
+
+            // Double tap — trigger cloud AI scan + reset timer
+            const now = Date.now();
+            if (now - lastTap < 400) {
+                speak('Scanning', true);
+                triggerCloudAINow();
+                lastTap = 0;
+                return;
             }
+            lastTap = now;
         }, { passive: true });
-        
-        // Buttons
-        document.getElementById('btnDescribe').addEventListener('click', () => { unlockAudio(); describeArea(); });
-        document.getElementById('btnMic').addEventListener('click', () => { unlockAudio(); startListening(); });
-        document.getElementById('btnSafe').addEventListener('click', () => { unlockAudio(); checkSafety(); });
     }
     
+    // ========== PROACTIVE CLOUD AI ==========
+    // Runs every 12s automatically. Double-tap resets the timer.
+    // Cloud AI acts as a "sighted guide" — describes scene, stairs, context.
+    const CLOUD_AI_INTERVAL = 12000;
+    let _cloudAITimer = null;
+    let _lastCloudResult = '';
+
+    function cloudAILoop() {
+        if (!state.isRunning || state.isPaused) {
+            _cloudAITimer = setTimeout(cloudAILoop, 2000);
+            return;
+        }
+
+        if (state.aiScanInProgress) {
+            _cloudAITimer = setTimeout(cloudAILoop, 3000);
+            return;
+        }
+
+        state.aiScanInProgress = true;
+        analyzeWithAI('background').then(result => {
+            state.aiScanInProgress = false;
+            if (!result) return;
+            state.aiResult = result;
+
+            // Don't repeat the same thing
+            const short = result.toLowerCase().substring(0, 80);
+            if (short === _lastCloudResult) return;
+            _lastCloudResult = short;
+
+            const hazard = parseAIResult(result);
+
+            if (hazard.level === 'clear') {
+                state.aiHazard = null;
+                return;
+            }
+
+            const ttl = hazard.level === 'danger' ? 4000 : 3000;
+            state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
+
+            // Speak directly — cloud AI is our primary guide on web
+            if (hazard.speak) {
+                if (hazard.level === 'danger') {
+                    speakAlert(hazard.key, hazard.speak, 3);
+                } else {
+                    speakAlert(hazard.key, hazard.speak, 2);
+                }
+            }
+        }).catch(() => { state.aiScanInProgress = false; });
+
+        _cloudAITimer = setTimeout(cloudAILoop, CLOUD_AI_INTERVAL);
+    }
+
+    // Double-tap calls this — immediate scan + resets timer
+    function triggerCloudAINow() {
+        clearTimeout(_cloudAITimer);
+        state.aiScanInProgress = true;
+
+        analyzeWithAI('detailed').then(result => {
+            state.aiScanInProgress = false;
+            if (!result) {
+                speak('Path appears clear.', true);
+                return;
+            }
+
+            _lastCloudResult = result.toLowerCase().substring(0, 80);
+            speak(result, true);
+
+            const hazard = parseAIResult(result);
+            if (hazard.level !== 'clear') {
+                state.aiHazard = { ...hazard, expiry: Date.now() + 5000 };
+            }
+        }).catch(() => {
+            state.aiScanInProgress = false;
+            speak('Scan failed.', true);
+        });
+
+        // Reset cloud AI timer — next auto scan in 12s
+        _cloudAITimer = setTimeout(cloudAILoop, CLOUD_AI_INTERVAL);
+    }
+
     // ========== HELP ==========
     function showHelp() {
         document.getElementById('help').classList.add('visible');
@@ -1753,12 +1807,15 @@
 
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
+        try { speechSynthesis.cancel(); } catch(e){}
         unlockAudio();
-        speak('GuideDog active. I will warn you about obstacles automatically.', true);
+        speak('Welcome to GuideDog.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
         fastHazardLoop();
+        // Start proactive cloud AI loop
+        cloudAILoop();
     }
     
     // ========== INIT ==========
