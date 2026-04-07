@@ -271,6 +271,7 @@
                 setTimeout(() => {
                     try {
                         const u = new SpeechSynthesisUtterance(
+                            'Welcome to GuideDog. ' +
                             'Privacy and permissions. ' +
                             'GuideDog needs camera access to detect obstacles. All detection runs on your device. ' +
                             'When you scan, a photo may be sent to cloud A.I. No images are stored. ' +
@@ -376,7 +377,7 @@
         <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to start</div>
     </div>
     
-    <div class="version-tag" id="versionTag">build 30</div>
+    <div class="version-tag" id="versionTag">build 31</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
@@ -1087,7 +1088,7 @@
             if (window.__txPipeline) { resolve(true); return; }
             const onOk   = () => { cleanup(); resolve(true); };
             const onFail = () => { cleanup(); resolve(false); };
-            const timer  = setTimeout(() => { cleanup(); resolve(false); }, 30000);
+            const timer  = setTimeout(() => { cleanup(); resolve(false); }, 15000);
             const cleanup = () => {
                 window.removeEventListener('tx-ready',  onOk);
                 window.removeEventListener('tx-failed', onFail);
@@ -1818,14 +1819,7 @@
 
         document.getElementById('helpClose').addEventListener('click', () => { hideHelp(); startApp(); });
 
-        // Load COCO-SSD (reliable, works everywhere)
-        try {
-            state.model = await cocoSsd.load();
-            console.log('COCO-SSD loaded');
-        } catch (e) {
-            console.error('COCO-SSD load failed:', e);
-        }
-
+        // Start camera FIRST — fastWallCheck needs pixels immediately
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -1833,13 +1827,23 @@
             });
             state.video.srcObject = stream;
             await state.video.play();
+            console.log('Camera started');
         } catch (e) {
             console.warn('Camera error:', e);
         }
 
+        // Load COCO-SSD (runs while user reads privacy/help screens)
+        try {
+            state.model = await cocoSsd.load();
+            console.log('COCO-SSD loaded');
+        } catch (e) {
+            console.error('COCO-SSD load failed:', e);
+        }
+
+        // Load depth model in background (non-blocking)
         initDepthModel();
 
-        // Models ready — try to start (will succeed if user already dismissed help)
+        // Try to start (will succeed if user already dismissed help)
         if (window._helpDismissed) {
             startApp();
         }
