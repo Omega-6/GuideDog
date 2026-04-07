@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json">
     
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
         html, body { height: 100%; overflow: hidden; background: #000; color: #fff; font-family: -apple-system, sans-serif; }
         
         .app { height: 100dvh; display: flex; flex-direction: column; position: relative; }
@@ -42,7 +42,7 @@
         .status-bar {
             padding: 15px;
             padding-top: max(15px, env(safe-area-inset-top));
-            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            background: rgba(0,0,0,0.85);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -89,18 +89,18 @@
         }
         
         .alert-box.safe {
-            background: rgba(0, 255, 136, 0.2);
+            background: rgba(0, 40, 20, 0.8);
             border: 3px solid #0f8;
         }
         
         .alert-box.warning {
-            background: rgba(255, 170, 0, 0.3);
+            background: rgba(50, 30, 0, 0.85);
             border: 3px solid #fa0;
             animation: pulse 1s infinite;
         }
         
         .alert-box.danger {
-            background: rgba(255, 68, 68, 0.4);
+            background: rgba(60, 10, 10, 0.9);
             border: 4px solid #f44;
             animation: shake 0.3s infinite;
         }
@@ -166,7 +166,7 @@
         .control-bar {
             padding: 15px;
             padding-bottom: max(15px, env(safe-area-inset-bottom));
-            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            background: rgba(0,0,0,0.85);
             display: flex;
             gap: 10px;
         }
@@ -245,6 +245,7 @@
         .help-desc { font-size: 14px; color: #aaa; margin-top: 5px; }
         .help-close { margin-top: 20px; padding: 20px; background: #48f; border: none; border-radius: 15px; color: #fff; font-size: 18px; font-weight: 700; }
         .version-tag { position: fixed; bottom: max(6px, env(safe-area-inset-bottom)); right: 8px; font-size: 10px; color: rgba(255,255,255,0.3); z-index: 5; pointer-events: none; }
+        .gesture-hint { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 15px; text-align: center; }
     </style>
 </head>
 <body>
@@ -261,84 +262,69 @@
     </noscript>
 
     <div class="help" id="privacyNotice" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
-        <div class="help-title" id="privacyTitle">Privacy Notice</div>
+        <div class="help-title" id="privacyTitle">Privacy &amp; Permissions</div>
         <div class="help-item">
-            <div class="help-label">Camera Images Sent to Cloud</div>
-            <div class="help-desc">Every 3 seconds, GuideDog sends a photo from your camera to a cloud AI service (OpenAI and Anthropic) for advanced hazard detection (stairs, doors, wet floors). These images are processed in real time. Local object detection runs entirely on your device. By tapping Start, you consent to this image upload.</div>
+            <div class="help-label">Camera</div>
+            <div class="help-desc">GuideDog needs camera access to detect obstacles. All detection runs on your device.</div>
+        </div>
+        <div class="help-item">
+            <div class="help-label">AI Guide</div>
+            <div class="help-desc">A cloud AI acts as your sighted guide, describing your surroundings every few seconds. Photos are processed and immediately discarded.</div>
         </div>
         <div class="help-item">
             <div class="help-label">No Account Required</div>
-            <div class="help-desc">No personal data is collected. Images are not stored after analysis. You can use voice commands or the Scan button to trigger cloud analysis on demand instead.</div>
+            <div class="help-desc">No personal data collected. No sign-up needed.</div>
         </div>
         <button class="help-close" id="privacyAccept">I Understand — Continue</button>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to continue</div>
     </div>
 
     <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
         <div class="help-title" id="helpTitle">GuideDog</div>
-        
         <div class="help-item">
-            <div class="help-label">AUTOMATIC PROTECTION</div>
-            <div class="help-desc">App constantly scans and warns you about obstacles, stairs, walls, doors automatically. You don't need to do anything!</div>
+            <div class="help-label">YOUR AI GUIDE</div>
+            <div class="help-desc">GuideDog acts like a sighted person walking with you. It describes your surroundings, warns about stairs, doors, and hazards automatically.</div>
         </div>
-        
         <div class="help-item">
-            <div class="help-label">Voice Commands (tap mic button)</div>
-            <div class="help-desc">"What's around" - describe area<br>"Is it safe" - check path<br>"Left" / "Right" - check sides<br>"Stop" / "Resume" - pause alerts</div>
+            <div class="help-label">GESTURES</div>
+            <div class="help-desc">
+                <strong>Double tap</strong> — ask your guide to scan now<br>
+                <strong>Hold screen</strong> — speak a voice command<br>
+                <strong>Swipe left/right</strong> — check sides
+            </div>
         </div>
-        
         <div class="help-item">
-            <div class="help-label">Gesture Controls</div>
-            <div class="help-desc">Tap TOP = describe area<br>Tap BOTTOM = detailed scan<br>Swipe LEFT/RIGHT = check sides</div>
+            <div class="help-label">VOICE COMMANDS</div>
+            <div class="help-desc">
+                "What's around" — describe area<br>
+                "Is it safe" — check path<br>
+                "Left" / "Right" — check sides<br>
+                "Stop" / "Resume" — pause or resume<br>
+                "Help" — hear this again
+            </div>
         </div>
-        
-        <div class="help-item">
-            <div class="help-label">Alert Sounds</div>
-            <div class="help-desc">Beeps indicate direction of obstacle<br>Fast beeps = DANGER, very close!<br>Vibration = obstacle in your path</div>
-        </div>
-        
-        <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
+        <button class="help-close" id="helpClose">START GUIDEDOG</button>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to start</div>
     </div>
-    
-    <div class="version-tag" id="versionTag">build 23</div>
+
+    <div class="version-tag" id="versionTag">build guide-1</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
-        
+
         <div class="overlay">
             <div class="status-bar">
-                <div class="status-badge badge-safe" id="statusBadge">SAFE</div>
-                <div class="ai-badge" id="aiBadge">AI Active</div>
+                <div class="status-badge" id="statusBadge" style="display:none;">SAFE</div>
+                <div class="ai-badge" id="aiBadge" aria-hidden="true">AI Guide Active</div>
             </div>
-            
+
             <div class="alert-area" id="alertArea">
                 <div class="alert-box safe" id="alertBox" role="alert" aria-live="assertive" aria-atomic="true">
-                    <div class="alert-icon" id="alertIcon">OK</div>
+                    <div class="alert-icon" id="alertIcon" aria-hidden="true">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
                 </div>
-
-                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;text-align:center;"></div>
-
-                <div class="direction-row">
-                    <div class="direction-btn" id="dirLeft">L</div>
-                    <div class="direction-btn" id="dirAhead">F</div>
-                    <div class="direction-btn" id="dirRight">R</div>
-                </div>
-            </div>
-            
-            <div class="control-bar">
-                <button class="ctrl-btn tall" id="btnDescribe">
-                    <span class="icon">?</span>
-                    <span>What's Around</span>
-                </button>
-                <button class="ctrl-btn mic" id="btnMic">
-                    <span class="icon">M</span>
-                    <span>Speak</span>
-                </button>
-                <button class="ctrl-btn tall" id="btnSafe">
-                    <span class="icon">&#10003;</span>
-                    <span>Is It Safe</span>
-                </button>
+                <div class="gesture-hint" id="gestureHint">Double-tap to scan · Hold to speak</div>
             </div>
         </div>
     </div>
@@ -389,13 +375,13 @@
         VIBRATE_COOLDOWN: 400,
 
         // Confidence threshold for naming objects
-        HIGH_CONFIDENCE: 0.65,       // Must be >65% confident to name the object (was 70%)
-        
+        HIGH_CONFIDENCE: 0.7,
+
         // Objects that matter for navigation
-        CRITICAL: ["car", "bus", "truck", "motorcycle", "bicycle", "train"],
-        OBSTACLES: ["person", "dog", "chair", "bench", "couch", "bed", "dining table",
-                    "toilet", "refrigerator", "potted plant", "suitcase", "backpack",
-                    "fire hydrant", "stop sign", "parking meter", "bicycle", "skateboard", "sports ball"]
+        CRITICAL: ["car", "bus", "truck", "motorcycle", "bicycle"],
+        OBSTACLES: ["person", "chair", "bench", "couch", "bed", "dining table",
+                    "refrigerator", "potted plant", "backpack",
+                    "fire hydrant", "stop sign", "parking meter", "laptop", "tv"]
     };
     
     // ========== STATE ==========
@@ -634,20 +620,25 @@
             
             state.recognition.onresult = (e) => {
                 const text = e.results[0][0].transcript.toLowerCase();
-                console.log('Heard:', text);
+                console.log('Voice heard:', text);
                 handleVoiceCommand(text);
+                state.isListening = false;
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Double-tap to scan · Hold to speak';
             };
-            
+
             state.recognition.onend = () => {
                 state.isListening = false;
-                updateMicButton(false);
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Double-tap to scan · Hold to speak';
             };
-            
+
             state.recognition.onerror = (e) => {
                 state.isListening = false;
-                updateMicButton(false);
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Double-tap to scan · Hold to speak';
                 if (e.error === 'no-speech') {
-                    speak('No speech heard. Tap microphone and try again.');
+                    speak('Didn\'t catch that. Hold and try again.', true);
                 }
             };
             
@@ -689,14 +680,7 @@
     }
     
     function updateMicButton(listening) {
-        const btn = document.getElementById('btnMic');
-        if (listening) {
-            btn.classList.add('listening');
-            btn.querySelector('span:last-child').textContent = 'Listening...';
-        } else {
-            btn.classList.remove('listening');
-            btn.querySelector('span:last-child').textContent = 'Speak';
-        }
+        // Buttons removed — no-op
     }
     
     function handleVoiceCommand(text) {
@@ -757,30 +741,29 @@
     // ========== AI ANALYSIS ==========
     // mode: 'background' = fast model, low-res (auto scans)
     // mode: 'detailed'   = accurate model, high-res (user-triggered)
-    async function analyzeWithAI(mode = 'background') {
+    async function analyzeWithAI(mode = 'background', contextOverride = '') {
         try {
+            if (!state.video || state.video.videoWidth === 0) return null;
             const canvas = document.createElement('canvas');
             const isDetailed = mode === 'detailed';
-            canvas.width = isDetailed ? Math.min(state.video.videoWidth || 960, 1280) : Math.min(state.video.videoWidth || 960, 960);
-            canvas.height = isDetailed ? Math.min(state.video.videoHeight || 720, 960) : Math.min(state.video.videoHeight || 720, 720);
+            canvas.width = isDetailed ? Math.min(state.video.videoWidth || 960, 960) : 640;
+            canvas.height = isDetailed ? Math.min(state.video.videoHeight || 720, 720) : 480;
             const ctx = canvas.getContext('2d');
-            // Fill black first — prevents transparent canvas falling back to PNG on iOS
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(state.video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/jpeg', isDetailed ? 0.9 : 0.75).split(',')[1];
+            const imageData = canvas.toDataURL('image/jpeg', isDetailed ? 0.8 : 0.5).split(',')[1];
 
-            // Pass what local model already found so AI focuses on what it missed
-            const context = state.localDetections
+            // Use provided context or build from detections
+            const context = contextOverride || state.localDetections
                 .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
-                .slice(0, 5)
-                .map(d => `${d.name} ${(d.distance * 3.28084).toFixed(0)}ft ${d.position}`)
+                .slice(0, 3)
+                .map(d => `${d.name} ${d.position}`)
                 .join(', ');
 
-            // Race both providers — use whichever responds first
             const result = await Promise.any([
-                fetchAI(imageData, 'openai', mode, context),
-                fetchAI(imageData, 'anthropic', mode, context)
+                fetchAI(imageData, 'anthropic', mode, context),
+                fetchAI(imageData, 'openai', mode, context)
             ]).catch(() => null);
             return result || null;
         } catch (e) {
@@ -1579,26 +1562,7 @@
             });
         }
 
-        // AI SCAN — fire async, set hazard (no UI/speech — fast loop handles that)
-        if (now - state.lastAIScan > CONFIG.AI_SCAN_INTERVAL && !state.isPaused && !state.aiScanInProgress) {
-            state.lastAIScan = now;
-            state.aiScanInProgress = true;
-
-            analyzeWithAI('background').then(result => {
-                state.aiScanInProgress = false;
-                if (!result) return;
-                state.aiResult = result;
-                const hazard = parseAIResult(result);
-
-                if (hazard.level === 'clear') {
-                    state.aiHazard = null;
-                    return;
-                }
-
-                const ttl = hazard.level === 'danger' ? 3000 : 2000;
-                state.aiHazard = { ...hazard, expiry: Date.now() + ttl };
-            }).catch(() => { state.aiScanInProgress = false; });
-        }
+        // AI SCAN removed from protection loop — handled by cloudGuideLoop()
 
         // Store COCO-SSD threat for fast loop to pick up (no UI here)
         state._mainThreat = highestThreat;
@@ -1705,60 +1669,230 @@
     }
     
     // ========== GESTURES ==========
-    function setupGestures() {
-        const area = document.getElementById('alertArea');
-        let touchStart = { x: 0, y: 0, time: 0 };
-        
-        area.addEventListener('touchstart', e => {
-            unlockAudio();
-            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
-        }, { passive: true });
-        
-        area.addEventListener('touchend', e => {
-            const dx = e.changedTouches[0].clientX - touchStart.x;
-            const dy = e.changedTouches[0].clientY - touchStart.y;
-            const duration = Date.now() - touchStart.time;
-            
-            if (duration > 1500) {
-                showHelp();
-                return;
-            }
-            
-            // Swipe
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
-                speakDirection(dx > 0 ? 'right' : 'left');
-                return;
-            }
-            
-            // Tap zones
-            const y = e.changedTouches[0].clientY / window.innerHeight;
-            if (y < 0.4) {
-                describeArea();
-            } else if (y > 0.6) {
-                triggerAIScan();
-            }
-        }, { passive: true });
-        
-        // Buttons
-        document.getElementById('btnDescribe').addEventListener('click', () => { unlockAudio(); describeArea(); });
-        document.getElementById('btnMic').addEventListener('click', () => { unlockAudio(); startListening(); });
-        document.getElementById('btnSafe').addEventListener('click', () => { unlockAudio(); checkSafety(); });
+    // ========== SPEECH GATING ==========
+    // Only one layer speaks at a time. Messages are dropped (not queued) if gate is closed.
+    let _lastSpeechEnd = 0;
+    const SPEECH_GAP = 1500; // ms of silence required between messages
+
+    function isSpeechSlotOpen() {
+        if (speechSynthesis.speaking) return false;
+        if (Date.now() - _lastSpeechEnd < SPEECH_GAP) return false;
+        return true;
     }
-    
+
+    // Wrap doSpeak to track when speech ends
+    const _origDoSpeak = doSpeak;
+    doSpeak = function(text, rate) {
+        try {
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = rate || 1.1;
+            u.volume = 1.0;
+            u.onend = () => { _currentSpeechPriority = 0; _lastSpeechEnd = Date.now(); };
+            u.onerror = () => { _currentSpeechPriority = 0; _lastSpeechEnd = Date.now(); };
+            speechSynthesis.speak(u);
+            _lastSpeechTime = Date.now();
+            console.log('Speaking:', text);
+        } catch (e) { console.warn('Speech error:', e); }
+    };
+
+    // ========== WALKING DETECTION ==========
+    let _accelSamples = [];
+    let _isWalking = true; // assume walking until we have data
+
+    try {
+        window.addEventListener('devicemotion', e => {
+            const a = e.accelerationIncludingGravity;
+            if (!a) return;
+            _accelSamples.push(Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z));
+            if (_accelSamples.length > 30) _accelSamples.shift();
+        }, { passive: true });
+    } catch(e) {}
+
+    function isWalking() {
+        if (_accelSamples.length < 10) return true; // assume walking if no data
+        const avg = _accelSamples.reduce((a,b) => a+b) / _accelSamples.length;
+        const variance = _accelSamples.reduce((a,b) => a + (b-avg)*(b-avg), 0) / _accelSamples.length;
+        return variance > 0.3;
+    }
+
+    // ========== CLOUD AI GUIDE LOOP ==========
+    // Event-driven: waits for speech to finish + silence gap before sending next frame.
+    // Pauses when stationary. Double-tap triggers immediately.
+    let _cloudGuideRunning = false;
+    let _lastCloudResult = '';
+    let _cloudPaused = false;
+
+    function cloudGuideLoop() {
+        if (!state.isRunning || state.isPaused || _cloudPaused) {
+            setTimeout(cloudGuideLoop, 2000);
+            return;
+        }
+
+        // Wait for speech slot to open (nothing speaking + 1.5s silence)
+        if (!isSpeechSlotOpen()) {
+            setTimeout(cloudGuideLoop, 500);
+            return;
+        }
+
+        // If user is stationary, slow down (check every 8s instead)
+        if (!isWalking()) {
+            setTimeout(cloudGuideLoop, 8000);
+            return;
+        }
+
+        if (state.aiScanInProgress) {
+            setTimeout(cloudGuideLoop, 1000);
+            return;
+        }
+
+        state.aiScanInProgress = true;
+
+        // Build context from COCO-SSD detections
+        const context = state.localDetections
+            .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
+            .slice(0, 3)
+            .map(d => `${d.name} ${d.position}`)
+            .join(', ');
+
+        analyzeWithAI('guide', context).then(result => {
+            state.aiScanInProgress = false;
+            if (!result) { setTimeout(cloudGuideLoop, 3000); return; }
+
+            // Dedup — don't repeat same description
+            const short = result.toLowerCase().substring(0, 80);
+            if (short === _lastCloudResult) { setTimeout(cloudGuideLoop, 4000); return; }
+            _lastCloudResult = short;
+
+            state.aiResult = result;
+            const hazard = parseAIResult(result);
+
+            if (hazard.level === 'clear') {
+                state.aiHazard = null;
+                // Don't speak "path clear" every cycle — only if it changed
+                if (state.currentStatus !== 'safe') {
+                    speak('Path clear.', true);
+                }
+                setTimeout(cloudGuideLoop, 5000);
+                return;
+            }
+
+            state.aiHazard = { ...hazard, expiry: Date.now() + 5000 };
+
+            // Speak the guide's description
+            if (hazard.level === 'danger') {
+                speakAlert(hazard.key, hazard.speak, 3); // interrupt everything
+            } else if (hazard.speak) {
+                speak(hazard.speak, true); // speak as guide companion
+            }
+
+            // Wait for this speech to finish + gap, then scan again
+            setTimeout(cloudGuideLoop, 2000);
+        }).catch(() => {
+            state.aiScanInProgress = false;
+            setTimeout(cloudGuideLoop, 5000);
+        });
+    }
+
+    // Double-tap calls this — immediate priority scan
+    function triggerCloudGuideNow() {
+        _lastCloudResult = ''; // allow repeat
+        state.aiScanInProgress = true;
+
+        const context = state.localDetections
+            .filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE)
+            .slice(0, 3)
+            .map(d => `${d.name} ${d.position}`)
+            .join(', ');
+
+        analyzeWithAI('detailed', context).then(result => {
+            state.aiScanInProgress = false;
+            if (!result) { speak('Path appears clear.', true); return; }
+            _lastCloudResult = result.toLowerCase().substring(0, 80);
+            speak(result, true); // highest priority — user asked for this
+
+            const hazard = parseAIResult(result);
+            if (hazard.level !== 'clear') {
+                state.aiHazard = { ...hazard, expiry: Date.now() + 6000 };
+            }
+        }).catch(() => {
+            state.aiScanInProgress = false;
+            speak('Scan failed.', true);
+        });
+    }
+
+    // ========== GESTURES ==========
+    function setupGestures() {
+        let holdTimer = null;
+        let lastTap = 0;
+        let holdFired = false;
+        let touchStartX = 0;
+
+        document.body.addEventListener('touchstart', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
+            unlockAudio();
+            holdFired = false;
+            touchStartX = e.touches[0].clientX;
+            holdTimer = setTimeout(() => {
+                holdFired = true;
+                vibrate([50]);
+                speak('Listening', true);
+                startListening();
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Listening...';
+            }, 600);
+        }, { passive: true });
+
+        document.body.addEventListener('touchend', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
+            clearTimeout(holdTimer);
+
+            if (holdFired) {
+                // Don't stop immediately — wait for onresult or timeout
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Processing...';
+                return;
+            }
+
+            // Swipe
+            const dx = e.changedTouches[0].clientX - touchStartX;
+            if (Math.abs(dx) > 80) {
+                speakDirection(dx > 0 ? 'right' : 'left');
+                lastTap = 0;
+                return;
+            }
+
+            // Double tap — trigger immediate cloud AI guide
+            const now = Date.now();
+            if (now - lastTap < 400) {
+                speak('Scanning', true);
+                triggerCloudGuideNow();
+                lastTap = 0;
+                return;
+            }
+            lastTap = now;
+        }, { passive: true });
+    }
+
     // ========== HELP ==========
     function showHelp() {
-        document.getElementById('help').classList.add('visible');
-        speak('GuideDog automatically warns you about obstacles, stairs, walls, and doors. You don\'t need to do anything. Tap the button to start.', true);
+        const helpEl = document.getElementById('help');
+        helpEl.classList.add('visible');
+        speak('GuideDog is your AI guide. It describes your surroundings automatically. Double tap to scan. Hold to speak. Swipe to check sides. Tap anywhere to start.', true);
+        const dismissHelp = () => { helpEl.removeEventListener('click', dismissHelp); hideHelp(); };
+        helpEl.addEventListener('click', dismissHelp);
     }
 
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
+        try { speechSynthesis.cancel(); } catch(e){}
         unlockAudio();
-        speak('GuideDog active. I will warn you about obstacles automatically.', true);
+        speak('Welcome to GuideDog. Your AI guide is active.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
         fastHazardLoop();
+        // Start the cloud AI guide loop after a short delay
+        setTimeout(cloudGuideLoop, 3000);
     }
     
     // ========== INIT ==========
@@ -1769,28 +1903,9 @@
         setupGestures();
 
         document.getElementById('helpClose').addEventListener('click', hideHelp);
-
-        // Privacy notice — shown once before the help screen
         const privacyNotice = document.getElementById('privacyNotice');
-        const privacyAccept = document.getElementById('privacyAccept');
-        privacyAccept.addEventListener('click', () => {
-            unlockAudio();
-            privacyNotice.style.display = 'none';
-        });
 
-        document.getElementById('loadingText').textContent = 'Loading detection model…';
-
-        try {
-            state.model = await cocoSsd.load();
-        } catch (e) {
-            console.error('Model load error:', e);
-            document.getElementById('loadingText').textContent = 'Failed to load model. Please reload the page.';
-            speak('Error loading detection model. Please reload the page.', true);
-            return;
-        }
-
-        document.getElementById('loadingText').textContent = 'Starting camera…';
-
+        // Start camera FIRST — fastWallCheck needs pixels
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -1798,29 +1913,31 @@
             });
             state.video.srcObject = stream;
             await state.video.play();
+            console.log('Camera started');
         } catch (e) {
-            document.getElementById('loadingText').textContent = 'Camera access required.';
-            speak('Camera access is required. Please allow camera access and reload the page.', true);
-            return;
+            console.warn('Camera error:', e);
+        }
+
+        // Load COCO-SSD
+        try {
+            state.model = await cocoSsd.load();
+            console.log('COCO-SSD loaded');
+        } catch (e) {
+            console.error('COCO-SSD load failed:', e);
         }
 
         document.getElementById('loading').classList.add('hidden');
-
-        // Start depth model loading in background — non-blocking, app works without it
         initDepthModel();
 
-        const isFirstRun = !localStorage.getItem('guidedog_v1');
-        if (isFirstRun) {
-            localStorage.setItem('guidedog_v1', 'true');
-            // Show privacy notice first, then help
-            privacyNotice.style.display = 'flex';
-            privacyAccept.addEventListener('click', showHelp, { once: true });
-        } else {
-            // Returning user — audio locked until first touch (iOS requirement).
-            state.isRunning = true;
-            protectionLoop();
-            fastHazardLoop();
-        }
+        // Show privacy → help → start every launch (tap anywhere to progress)
+        privacyNotice.style.display = 'flex';
+        const dismissPrivacy = () => {
+            unlockAudio();
+            privacyNotice.style.display = 'none';
+            privacyNotice.removeEventListener('click', dismissPrivacy);
+            showHelp();
+        };
+        privacyNotice.addEventListener('click', dismissPrivacy);
     }
     
     window.addEventListener('load', init);
