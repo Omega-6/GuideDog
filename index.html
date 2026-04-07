@@ -398,11 +398,13 @@
         </div>
     </div>
 
+    <!-- MediaPipe Vision (primary detector — faster, more accurate) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm/vision_bundle.mjs" type="module"></script>
+
+    <!-- COCO-SSD fallback (loads if MediaPipe fails) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
-            integrity="sha384-vE8hbVJ4lezako5rlvE7bY0BVzWlFhZncPlckrqNwcUQpVtgbENTgZ8TBbnPjZre"
             crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
-            integrity="sha384-7qLdgfEQyO9ZQi9ArRHigK+IBto4XPk468jAqc+fnsXaZIcMAhQeLwzggRK7aESl"
             crossorigin="anonymous"></script>
 
     <script type="module">
@@ -1892,11 +1894,47 @@
 
         document.getElementById('helpClose').addEventListener('click', () => { hideHelp(); startApp(); });
 
-        // Load models while user reads privacy/help screens
+        // Try MediaPipe first (faster), fall back to COCO-SSD
         try {
-            state.model = await cocoSsd.load();
+            const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest');
+            const { ObjectDetector, FilesetResolver } = vision;
+            const wasmFiles = await FilesetResolver.forVisionTasks(
+                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+            );
+            state.mpDetector = await ObjectDetector.createFromOptions(wasmFiles, {
+                baseOptions: {
+                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/latest/efficientdet_lite0.tflite',
+                    delegate: 'GPU'
+                },
+                runningMode: 'VIDEO',
+                scoreThreshold: 0.5,
+                maxResults: 5
+            });
+            // Wrap MediaPipe in a COCO-SSD compatible interface
+            state.model = {
+                detect: async (video) => {
+                    const result = state.mpDetector.detectForVideo(video, performance.now());
+                    return (result.detections || []).map(d => ({
+                        class: d.categories[0]?.categoryName || 'object',
+                        score: d.categories[0]?.score || 0,
+                        bbox: [
+                            d.boundingBox.originX,
+                            d.boundingBox.originY,
+                            d.boundingBox.width,
+                            d.boundingBox.height
+                        ]
+                    }));
+                }
+            };
+            console.log('MediaPipe ObjectDetector loaded');
         } catch (e) {
-            console.error('Model load error:', e);
+            console.warn('MediaPipe failed, falling back to COCO-SSD:', e.message);
+            try {
+                state.model = await cocoSsd.load();
+                console.log('COCO-SSD loaded as fallback');
+            } catch (e2) {
+                console.error('Both detectors failed:', e2);
+            }
         }
 
         try {
