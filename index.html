@@ -1802,7 +1802,7 @@
         if (typeof state === 'undefined' || !state.model) return;
         window._appStarted = true;
         unlockAudio();
-        speak('Welcome to GuideDog. I will protect you automatically.', true);
+        speak('Welcome to GuideDog.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
