@@ -398,10 +398,6 @@
         </div>
     </div>
 
-    <!-- MediaPipe Vision (primary detector — faster, more accurate) -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm/vision_bundle.mjs" type="module"></script>
-
-    <!-- COCO-SSD fallback (loads if MediaPipe fails) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
             crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
@@ -462,6 +458,9 @@
         isRunning: false,
         isPaused: false,
         
+        // Environment context (from cloud AI)
+        environment: 'unknown',  // 'indoor', 'outdoor', 'unknown'
+
         // Detection results
         localDetections: [],
         aiResult: null,
@@ -976,6 +975,12 @@
                 // Is it in the walking path?
                 const inPath = cx > 0.25 && cx < 0.75 && cy > 0.3;
 
+                // Filter by environment context
+                const indoorOnly = ['refrigerator', 'bed', 'couch', 'dining table', 'laptop', 'tv'];
+                const outdoorOnly = ['fire hydrant', 'stop sign', 'parking meter'];
+                if (state.environment === 'indoor' && outdoorOnly.includes(p.class)) return null;
+                if (state.environment === 'outdoor' && indoorOnly.includes(p.class)) return null;
+
                 // Danger level
                 let danger = 'low';
                 if (CONFIG.CRITICAL.includes(p.class)) danger = 'critical';
@@ -989,7 +994,7 @@
                     danger: danger,
                     confidence: p.score
                 };
-            }).filter(d => d.confidence >= CONFIG.HIGH_CONFIDENCE);
+            }).filter(d => d && d.confidence >= CONFIG.HIGH_CONFIDENCE);
         } catch (e) {
             return [];
         }
@@ -1643,6 +1648,15 @@
                 state.aiScanInProgress = false;
                 if (!result) return;
                 state.aiResult = result;
+
+                // Detect indoor/outdoor from AI response
+                const lower = result.toLowerCase();
+                if (/indoor|room|hallway|corridor|kitchen|bathroom|office|inside/.test(lower)) {
+                    state.environment = 'indoor';
+                } else if (/outdoor|sidewalk|street|road|outside|parking|crosswalk/.test(lower)) {
+                    state.environment = 'outdoor';
+                }
+
                 const hazard = parseAIResult(result);
 
                 if (hazard.level === 'clear') {
@@ -1894,47 +1908,12 @@
 
         document.getElementById('helpClose').addEventListener('click', () => { hideHelp(); startApp(); });
 
-        // Try MediaPipe first (faster), fall back to COCO-SSD
+        // Load COCO-SSD (reliable, works everywhere)
         try {
-            const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest');
-            const { ObjectDetector, FilesetResolver } = vision;
-            const wasmFiles = await FilesetResolver.forVisionTasks(
-                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-            );
-            state.mpDetector = await ObjectDetector.createFromOptions(wasmFiles, {
-                baseOptions: {
-                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/latest/efficientdet_lite0.tflite',
-                    delegate: 'GPU'
-                },
-                runningMode: 'VIDEO',
-                scoreThreshold: 0.5,
-                maxResults: 5
-            });
-            // Wrap MediaPipe in a COCO-SSD compatible interface
-            state.model = {
-                detect: async (video) => {
-                    const result = state.mpDetector.detectForVideo(video, performance.now());
-                    return (result.detections || []).map(d => ({
-                        class: d.categories[0]?.categoryName || 'object',
-                        score: d.categories[0]?.score || 0,
-                        bbox: [
-                            d.boundingBox.originX,
-                            d.boundingBox.originY,
-                            d.boundingBox.width,
-                            d.boundingBox.height
-                        ]
-                    }));
-                }
-            };
-            console.log('MediaPipe ObjectDetector loaded');
+            state.model = await cocoSsd.load();
+            console.log('COCO-SSD loaded');
         } catch (e) {
-            console.warn('MediaPipe failed, falling back to COCO-SSD:', e.message);
-            try {
-                state.model = await cocoSsd.load();
-                console.log('COCO-SSD loaded as fallback');
-            } catch (e2) {
-                console.error('Both detectors failed:', e2);
-            }
+            console.error('COCO-SSD load failed:', e);
         }
 
         try {
