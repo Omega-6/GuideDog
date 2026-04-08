@@ -595,11 +595,10 @@
 
     function speakAlert(key, text, priority = 2) {
         const now = Date.now();
-        const cooldowns = { 3: 1500, 2: 2000, 1: 4000 };
+        const cooldowns = { 3: 0, 2: 0, 1: 0 };
         const cooldown = cooldowns[priority] || 3000;
 
         if (now - (state.lastAlerts[key] || 0) < cooldown) return;
-        if (priority < _currentSpeechPriority && now - _lastSpeechTime < 1500) return;
 
         state.lastAlerts[key] = now;
         if (state.isListening) stopListening();
