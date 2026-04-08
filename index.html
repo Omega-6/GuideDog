@@ -261,16 +261,17 @@
     </noscript>
 
     <div class="help" id="privacyNotice" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
-        <div class="help-title" id="privacyTitle">Privacy Notice</div>
+        <div class="help-title" id="privacyTitle">Privacy &amp; Permissions</div>
         <div class="help-item">
-            <div class="help-label">Camera Images Sent to Cloud</div>
-            <div class="help-desc">Every 3 seconds, GuideDog sends a photo from your camera to a cloud AI service (OpenAI and Anthropic) for advanced hazard detection (stairs, doors, wet floors). These images are processed in real time. Local object detection runs entirely on your device. By tapping Start, you consent to this image upload.</div>
+            <div class="help-label">Camera &amp; AI Guide</div>
+            <div class="help-desc">GuideDog uses your camera and cloud AI to help you navigate. All detection runs on your device. Photos are processed and immediately discarded.</div>
         </div>
         <div class="help-item">
             <div class="help-label">No Account Required</div>
-            <div class="help-desc">No personal data is collected. Images are not stored after analysis. You can use voice commands or the Scan button to trigger cloud analysis on demand instead.</div>
+            <div class="help-desc">No personal data collected. No sign-up needed.</div>
         </div>
         <button class="help-close" id="privacyAccept">I Understand — Continue</button>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap to hear aloud · Tap again to continue</div>
     </div>
 
     <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -1270,8 +1271,8 @@
         }
         if (c > 85) {
             return { level: 'warning', key: 'depth_near',
-                label: 'SURFACE AHEAD', speak: 'Slow',
-                uiDetail: `Surface ahead (c:${c.toFixed(0)})`, fromDepth: true };
+                label: 'OBSTACLE', speak: 'Slow',
+                uiDetail: `Obstacle ahead`, fromDepth: true };
         }
 
 
@@ -1353,8 +1354,8 @@
             }
             if (variance < 350 && edgeRatio < 0.10) {
                 return { level: 'warning', key: 'wall_fast',
-                    label: 'SURFACE AHEAD', speak: 'Slow',
-                    uiDetail: `Surface ahead (v:${variance.toFixed(0)} e:${edgeRatio.toFixed(2)})`,
+                    label: 'OBSTACLE', speak: 'Slow',
+                    uiDetail: `Obstacle ahead`,
                     fromDepth: true };
             }
 
@@ -1758,14 +1759,14 @@
 
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
+        try { speechSynthesis.cancel(); } catch(e){}
         unlockAudio();
-        speak('Welcome to GuideDog.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
         fastHazardLoop();
     }
-    
+
     // ========== INIT ==========
     async function init() {
         state.video = document.getElementById('video');
@@ -1774,28 +1775,9 @@
         setupGestures();
 
         document.getElementById('helpClose').addEventListener('click', hideHelp);
-
-        // Privacy notice — shown once before the help screen
         const privacyNotice = document.getElementById('privacyNotice');
-        const privacyAccept = document.getElementById('privacyAccept');
-        privacyAccept.addEventListener('click', () => {
-            unlockAudio();
-            privacyNotice.style.display = 'none';
-        });
 
-        document.getElementById('loadingText').textContent = 'Loading detection model…';
-
-        try {
-            state.model = await cocoSsd.load();
-        } catch (e) {
-            console.error('Model load error:', e);
-            document.getElementById('loadingText').textContent = 'Failed to load model. Please reload the page.';
-            speak('Error loading detection model. Please reload the page.', true);
-            return;
-        }
-
-        document.getElementById('loadingText').textContent = 'Starting camera…';
-
+        // Load camera first
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -1804,28 +1786,47 @@
             state.video.srcObject = stream;
             await state.video.play();
         } catch (e) {
-            document.getElementById('loadingText').textContent = 'Camera access required.';
-            speak('Camera access is required. Please allow camera access and reload the page.', true);
-            return;
+            console.warn('Camera error:', e);
+        }
+
+        // Load COCO-SSD
+        try {
+            state.model = await cocoSsd.load();
+        } catch (e) {
+            console.error('COCO-SSD load failed:', e);
         }
 
         document.getElementById('loading').classList.add('hidden');
-
-        // Start depth model loading in background — non-blocking, app works without it
         initDepthModel();
 
-        const isFirstRun = !localStorage.getItem('guidedog_v1');
-        if (isFirstRun) {
-            localStorage.setItem('guidedog_v1', 'true');
-            // Show privacy notice first, then help
-            privacyNotice.style.display = 'flex';
-            privacyAccept.addEventListener('click', showHelp, { once: true });
-        } else {
-            // Returning user — audio locked until first touch (iOS requirement).
-            state.isRunning = true;
-            protectionLoop();
-            fastHazardLoop();
-        }
+        // Show privacy every launch
+        // First tap: welcome + read privacy. Second tap: move to features.
+        privacyNotice.style.display = 'flex';
+        let privacyRead = false;
+
+        privacyNotice.addEventListener('click', () => {
+            if (!privacyRead) {
+                // FIRST TAP — unlock audio, welcome, read privacy
+                privacyRead = true;
+                unlockAudio();
+                try {
+                    speechSynthesis.cancel();
+                    const u = new SpeechSynthesisUtterance(
+                        'Welcome to GuideDog. ' +
+                        'This app uses your camera and cloud A.I. to help you navigate. ' +
+                        'All detection runs on your device. No data is stored. ' +
+                        'Tap again to continue.'
+                    );
+                    u.rate = 1.0; u.volume = 1.0;
+                    speechSynthesis.speak(u);
+                } catch(e){}
+                return;
+            }
+            // SECOND TAP — move to features
+            try { speechSynthesis.cancel(); } catch(e){}
+            privacyNotice.style.display = 'none';
+            showHelp();
+        });
     }
     
     window.addEventListener('load', init);
