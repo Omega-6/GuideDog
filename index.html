@@ -1456,7 +1456,7 @@
     let _loopRunning = false;  // prevents multiple protectionLoop instances
 
     async function protectionLoop() {
-        if (_loopRunning) return;  // prevent duplicate loops
+        if (_loopRunning) return;
         _loopRunning = true;
 
         if (!state.isRunning) {
@@ -1464,6 +1464,7 @@
             setTimeout(protectionLoop, 500);
             return;
         }
+        console.log('protectionLoop running — detections:', state.localDetections?.length, 'model:', !!state.model);
 
         const now = Date.now();
 
@@ -1723,19 +1724,20 @@
     let _cloudPaused = false;
 
     function cloudGuideLoop() {
+        console.log('cloudGuideLoop tick — running:', state.isRunning, 'paused:', state.isPaused, 'speechOpen:', isSpeechSlotOpen(), 'walking:', isWalking(), 'aiInProgress:', state.aiScanInProgress);
+
         if (!state.isRunning || state.isPaused || _cloudPaused) {
             setTimeout(cloudGuideLoop, 2000);
             return;
         }
 
-        // Wait for speech slot to open (nothing speaking + 1.5s silence)
         if (!isSpeechSlotOpen()) {
             setTimeout(cloudGuideLoop, 500);
             return;
         }
 
-        // If user is stationary, slow down (check every 8s instead)
         if (!isWalking()) {
+            console.log('cloudGuideLoop: stationary, slowing down');
             setTimeout(cloudGuideLoop, 8000);
             return;
         }
@@ -1883,16 +1885,20 @@
     }
 
     function hideHelp() {
+        console.log('hideHelp called');
         document.getElementById('help').classList.remove('visible');
         try { speechSynthesis.cancel(); } catch(e){}
         unlockAudio();
         speak('Welcome to GuideDog. Your AI guide is active.', true);
         state.isRunning = true;
         state.isPaused = false;
+        console.log('Starting loops, isRunning:', state.isRunning, 'model:', !!state.model, 'video:', !!state.video?.srcObject);
         protectionLoop();
         fastHazardLoop();
-        // Start the cloud AI guide loop after a short delay
-        setTimeout(cloudGuideLoop, 3000);
+        setTimeout(() => {
+            console.log('Starting cloudGuideLoop');
+            cloudGuideLoop();
+        }, 3000);
     }
     
     // ========== INIT ==========
@@ -1927,6 +1933,7 @@
         }
 
         document.getElementById('loading').classList.add('hidden');
+        console.log('Init complete — model:', !!state.model, 'video:', !!state.video?.srcObject);
         initDepthModel();
 
         // Show privacy → help → start every launch (tap anywhere to progress)
