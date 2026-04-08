@@ -1439,23 +1439,21 @@
             updateDirections(null, 'safe');
         }
 
-        // ── AUDIO (on state change + periodic re-announce) ──
+        // ── AUDIO (announce every safety level change) ──
         if (!state.isPaused) {
             const changed = threat !== _lastFastThreat;
 
-            if (threat === 'danger') {
-                if (changed || now - _lastFastSpeech > 3000) {
+            if (changed) {
+                if (threat === 'danger') {
                     speakAlert('fast_danger', `Watch out. ${cleanLabel}.`, 3);
                     vibrateAlert('danger');
                     playAlertSound(pos, 'danger');
-                    _lastFastSpeech = now;
-                }
-            } else if (threat === 'warning') {
-                if (changed || now - _lastFastSpeech > 5000) {
+                } else if (threat === 'warning') {
                     speakAlert('fast_warning', `Watch out, ${cleanLabel} ahead.`, 2);
                     vibrateAlert('warning');
                     playAlertSound(pos, 'warning');
-                    _lastFastSpeech = now;
+                } else if (threat === 'safe') {
+                    speakAlert('fast_safe', 'Path clear.', 1);
                 }
                 _lastFastSpeech = now;
             }
