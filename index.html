@@ -1426,32 +1426,33 @@
             pos = ob.position || 'ahead';
         }
 
-        // ── UI UPDATE (every 50ms — always in sync) ──
+        // ── UI UPDATE (every 50ms — always in sync, no distance shown) ──
+        const cleanLabel = label.replace(/ ahead$/i, '');
         if (threat === 'danger') {
-            updateUI('danger', '!', `STOP! ${label}!`, detail);
+            updateUI('danger', '!', `STOP! ${cleanLabel}!`, '');
             updateDirections(pos, 'danger');
         } else if (threat === 'warning') {
-            updateUI('warning', '!', `${label} ahead`, detail);
+            updateUI('warning', '!', `${cleanLabel} ahead`, '');
             updateDirections(pos, 'warning');
         } else {
-            updateUI('safe', 'OK', 'Path Clear', 'Walking is safe');
+            updateUI('safe', 'OK', 'Path Clear', '');
             updateDirections(null, 'safe');
         }
 
-        // ── AUDIO (on state change + periodic re-announce for danger) ──
+        // ── AUDIO (on state change + periodic re-announce) ──
         if (!state.isPaused) {
             const changed = threat !== _lastFastThreat;
 
             if (threat === 'danger') {
                 if (changed || now - _lastFastSpeech > 3000) {
-                    speakAlert('fast_danger', `Watch out. ${label}.`, 3);
+                    speakAlert('fast_danger', `Watch out. ${cleanLabel}.`, 3);
                     vibrateAlert('danger');
                     playAlertSound(pos, 'danger');
                     _lastFastSpeech = now;
                 }
             } else if (threat === 'warning') {
                 if (changed || now - _lastFastSpeech > 5000) {
-                    speakAlert('fast_warning', `Watch out, ${label} ahead.`, 2);
+                    speakAlert('fast_warning', `Watch out, ${cleanLabel} ahead.`, 2);
                     vibrateAlert('warning');
                     playAlertSound(pos, 'warning');
                     _lastFastSpeech = now;
