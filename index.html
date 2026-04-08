@@ -595,7 +595,7 @@
 
     function speakAlert(key, text, priority = 2) {
         const now = Date.now();
-        const cooldowns = { 3: 2000, 2: 3000, 1: 5000 };
+        const cooldowns = { 3: 1500, 2: 2000, 1: 4000 };
         const cooldown = cooldowns[priority] || 3000;
 
         if (now - (state.lastAlerts[key] || 0) < cooldown) return;
@@ -1439,21 +1439,24 @@
             updateDirections(null, 'safe');
         }
 
-        // ── AUDIO (only on state change or sustained danger) ──
+        // ── AUDIO (on state change + periodic re-announce for danger) ──
         if (!state.isPaused) {
             const changed = threat !== _lastFastThreat;
 
             if (threat === 'danger') {
-                if (changed || now - _lastFastSpeech > 2500) {
-                    speakAlert('fast_danger', `Stop. ${label}.`, 3);
+                if (changed || now - _lastFastSpeech > 3000) {
+                    speakAlert('fast_danger', `Watch out. ${label}.`, 3);
                     vibrateAlert('danger');
                     playAlertSound(pos, 'danger');
                     _lastFastSpeech = now;
                 }
-            } else if (threat === 'warning' && changed) {
-                speakAlert('fast_warning', `Caution. ${label}.`, 2);
-                vibrateAlert('warning');
-                playAlertSound(pos, 'warning');
+            } else if (threat === 'warning') {
+                if (changed || now - _lastFastSpeech > 5000) {
+                    speakAlert('fast_warning', `Watch out, ${label} ahead.`, 2);
+                    vibrateAlert('warning');
+                    playAlertSound(pos, 'warning');
+                    _lastFastSpeech = now;
+                }
                 _lastFastSpeech = now;
             }
         }
