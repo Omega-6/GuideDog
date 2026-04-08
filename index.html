@@ -245,6 +245,7 @@
         .help-desc { font-size: 14px; color: #aaa; margin-top: 5px; }
         .help-close { margin-top: 20px; padding: 20px; background: #48f; border: none; border-radius: 15px; color: #fff; font-size: 18px; font-weight: 700; }
         .version-tag { position: fixed; bottom: max(6px, env(safe-area-inset-bottom)); right: 8px; font-size: 10px; color: rgba(255,255,255,0.3); z-index: 5; pointer-events: none; }
+        .gesture-hint { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 15px; text-align: center; }
     </style>
 </head>
 <body>
@@ -261,84 +262,69 @@
     </noscript>
 
     <div class="help" id="privacyNotice" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
-        <div class="help-title" id="privacyTitle">Privacy Notice</div>
+        <div class="help-title" id="privacyTitle">Privacy &amp; Permissions</div>
         <div class="help-item">
-            <div class="help-label">Camera Images Sent to Cloud</div>
-            <div class="help-desc">Every 3 seconds, GuideDog sends a photo from your camera to a cloud AI service (OpenAI and Anthropic) for advanced hazard detection (stairs, doors, wet floors). These images are processed in real time. Local object detection runs entirely on your device. By tapping Start, you consent to this image upload.</div>
+            <div class="help-label">Camera</div>
+            <div class="help-desc">GuideDog needs camera access to detect obstacles. All detection runs on your device.</div>
+        </div>
+        <div class="help-item">
+            <div class="help-label">AI Guide</div>
+            <div class="help-desc">A cloud AI acts as your sighted guide, describing your surroundings. Photos are processed and immediately discarded.</div>
         </div>
         <div class="help-item">
             <div class="help-label">No Account Required</div>
-            <div class="help-desc">No personal data is collected. Images are not stored after analysis. You can use voice commands or the Scan button to trigger cloud analysis on demand instead.</div>
+            <div class="help-desc">No personal data collected. No sign-up needed.</div>
         </div>
         <button class="help-close" id="privacyAccept">I Understand — Continue</button>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to continue</div>
     </div>
 
     <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
         <div class="help-title" id="helpTitle">GuideDog</div>
-        
         <div class="help-item">
             <div class="help-label">AUTOMATIC PROTECTION</div>
-            <div class="help-desc">App constantly scans and warns you about obstacles, stairs, walls, doors automatically. You don't need to do anything!</div>
+            <div class="help-desc">GuideDog constantly monitors your surroundings using AI. It warns you about walls, obstacles, stairs, and hazards automatically.</div>
         </div>
-        
         <div class="help-item">
-            <div class="help-label">Voice Commands (tap mic button)</div>
-            <div class="help-desc">"What's around" - describe area<br>"Is it safe" - check path<br>"Left" / "Right" - check sides<br>"Stop" / "Resume" - pause alerts</div>
+            <div class="help-label">GESTURES</div>
+            <div class="help-desc">
+                <strong>Double tap</strong> — scan surroundings<br>
+                <strong>Hold screen</strong> — speak a voice command<br>
+                <strong>Swipe left/right</strong> — check sides
+            </div>
         </div>
-        
         <div class="help-item">
-            <div class="help-label">Gesture Controls</div>
-            <div class="help-desc">Tap TOP = describe area<br>Tap BOTTOM = detailed scan<br>Swipe LEFT/RIGHT = check sides</div>
+            <div class="help-label">VOICE COMMANDS</div>
+            <div class="help-desc">
+                "What's around" — describe area<br>
+                "Is it safe" — check path<br>
+                "Left" / "Right" — check sides<br>
+                "Stop" / "Resume" — pause or resume<br>
+                "Help" — hear this again
+            </div>
         </div>
-        
-        <div class="help-item">
-            <div class="help-label">Alert Sounds</div>
-            <div class="help-desc">Beeps indicate direction of obstacle<br>Fast beeps = DANGER, very close!<br>Vibration = obstacle in your path</div>
-        </div>
-        
-        <button class="help-close" id="helpClose">START - TAP HERE OR SAY "START"</button>
+        <button class="help-close" id="helpClose">START GUIDEDOG</button>
+        <div style="text-align:center;color:#888;font-size:13px;margin-top:10px;">Tap anywhere to start</div>
     </div>
-    
-    <div class="version-tag" id="versionTag">build 25c-v2</div>
+
+    <div class="version-tag" id="versionTag">build 25c-v3</div>
 
     <div class="app">
         <video id="video" autoplay playsinline muted></video>
-        
+
         <div class="overlay">
             <div class="status-bar">
-                <div class="status-badge badge-safe" id="statusBadge">SAFE</div>
-                <div class="ai-badge" id="aiBadge">AI Active</div>
+                <div class="status-badge" id="statusBadge" style="display:none;">SAFE</div>
+                <div class="ai-badge" id="aiBadge" aria-hidden="true">AI Active</div>
             </div>
-            
+
             <div class="alert-area" id="alertArea">
                 <div class="alert-box safe" id="alertBox" role="alert" aria-live="assertive" aria-atomic="true">
-                    <div class="alert-icon" id="alertIcon">OK</div>
+                    <div class="alert-icon" id="alertIcon" aria-hidden="true">OK</div>
                     <div class="alert-text" id="alertText">Path Clear</div>
                     <div class="alert-detail" id="alertDetail">Walking is safe</div>
                 </div>
-
-                <div id="debugInfo" style="font-size:10px;color:#888;margin-top:8px;font-family:monospace;text-align:center;"></div>
-
-                <div class="direction-row">
-                    <div class="direction-btn" id="dirLeft">L</div>
-                    <div class="direction-btn" id="dirAhead">F</div>
-                    <div class="direction-btn" id="dirRight">R</div>
-                </div>
-            </div>
-            
-            <div class="control-bar">
-                <button class="ctrl-btn tall" id="btnDescribe">
-                    <span class="icon">?</span>
-                    <span>What's Around</span>
-                </button>
-                <button class="ctrl-btn mic" id="btnMic">
-                    <span class="icon">M</span>
-                    <span>Speak</span>
-                </button>
-                <button class="ctrl-btn tall" id="btnSafe">
-                    <span class="icon">&#10003;</span>
-                    <span>Is It Safe</span>
-                </button>
+                <div class="gesture-hint" id="gestureHint">Double-tap to scan · Hold to speak</div>
             </div>
         </div>
     </div>
@@ -688,14 +674,9 @@
     }
     
     function updateMicButton(listening) {
-        const btn = document.getElementById('btnMic');
-        if (listening) {
-            btn.classList.add('listening');
-            btn.querySelector('span:last-child').textContent = 'Listening...';
-        } else {
-            btn.classList.remove('listening');
-            btn.querySelector('span:last-child').textContent = 'Speak';
-        }
+        // Buttons removed — use gesture hint instead
+        const hint = document.getElementById('gestureHint');
+        if (hint) hint.textContent = listening ? 'Listening...' : 'Double-tap to scan · Hold to speak';
     }
     
     function handleVoiceCommand(text) {
@@ -1710,61 +1691,79 @@
     
     // ========== GESTURES ==========
     function setupGestures() {
-        const area = document.getElementById('alertArea');
-        let touchStart = { x: 0, y: 0, time: 0 };
-        
-        area.addEventListener('touchstart', e => {
+        let holdTimer = null;
+        let lastTap = 0;
+        let holdFired = false;
+        let touchStartX = 0;
+
+        document.body.addEventListener('touchstart', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
             unlockAudio();
-            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+            holdFired = false;
+            touchStartX = e.touches[0].clientX;
+            holdTimer = setTimeout(() => {
+                holdFired = true;
+                vibrate([50]);
+                speak('Listening', true);
+                startListening();
+                const hint = document.getElementById('gestureHint');
+                if (hint) hint.textContent = 'Listening...';
+            }, 600);
         }, { passive: true });
-        
-        area.addEventListener('touchend', e => {
-            const dx = e.changedTouches[0].clientX - touchStart.x;
-            const dy = e.changedTouches[0].clientY - touchStart.y;
-            const duration = Date.now() - touchStart.time;
-            
-            if (duration > 1500) {
-                showHelp();
+
+        document.body.addEventListener('touchend', e => {
+            if (e.target.closest('.help') || e.target.closest('.loading')) return;
+            clearTimeout(holdTimer);
+
+            if (holdFired) {
+                // Let recognition finish naturally
+                setTimeout(() => {
+                    stopListening();
+                    const hint = document.getElementById('gestureHint');
+                    if (hint) hint.textContent = 'Double-tap to scan · Hold to speak';
+                }, 3000);
                 return;
             }
-            
+
             // Swipe
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+            const dx = e.changedTouches[0].clientX - touchStartX;
+            if (Math.abs(dx) > 80) {
                 speakDirection(dx > 0 ? 'right' : 'left');
+                lastTap = 0;
                 return;
             }
-            
-            // Tap zones
-            const y = e.changedTouches[0].clientY / window.innerHeight;
-            if (y < 0.4) {
-                describeArea();
-            } else if (y > 0.6) {
+
+            // Double tap — trigger AI scan
+            const now = Date.now();
+            if (now - lastTap < 400) {
+                speak('Scanning', true);
                 triggerAIScan();
+                lastTap = 0;
+                return;
             }
+            lastTap = now;
         }, { passive: true });
-        
-        // Buttons
-        document.getElementById('btnDescribe').addEventListener('click', () => { unlockAudio(); describeArea(); });
-        document.getElementById('btnMic').addEventListener('click', () => { unlockAudio(); startListening(); });
-        document.getElementById('btnSafe').addEventListener('click', () => { unlockAudio(); checkSafety(); });
     }
     
     // ========== HELP ==========
     function showHelp() {
-        document.getElementById('help').classList.add('visible');
-        speak('GuideDog automatically warns you about obstacles, stairs, walls, and doors. You don\'t need to do anything. Tap the button to start.', true);
+        const helpEl = document.getElementById('help');
+        helpEl.classList.add('visible');
+        speak('GuideDog protects you automatically. Double tap to scan. Hold to speak. Swipe to check sides. Tap anywhere to start.', true);
+        const dismiss = () => { helpEl.removeEventListener('click', dismiss); hideHelp(); };
+        helpEl.addEventListener('click', dismiss);
     }
 
     function hideHelp() {
         document.getElementById('help').classList.remove('visible');
+        try { speechSynthesis.cancel(); } catch(e){}
         unlockAudio();
-        speak('Welcome to GuideDog.', true);
         state.isRunning = true;
         state.isPaused = false;
         protectionLoop();
         fastHazardLoop();
     }
-    
+
     // ========== INIT ==========
     async function init() {
         state.video = document.getElementById('video');
@@ -1774,27 +1773,9 @@
 
         document.getElementById('helpClose').addEventListener('click', hideHelp);
 
-        // Privacy notice — shown once before the help screen
         const privacyNotice = document.getElementById('privacyNotice');
-        const privacyAccept = document.getElementById('privacyAccept');
-        privacyAccept.addEventListener('click', () => {
-            unlockAudio();
-            privacyNotice.style.display = 'none';
-        });
 
-        document.getElementById('loadingText').textContent = 'Loading detection model…';
-
-        try {
-            state.model = await cocoSsd.load();
-        } catch (e) {
-            console.error('Model load error:', e);
-            document.getElementById('loadingText').textContent = 'Failed to load model. Please reload the page.';
-            speak('Error loading detection model. Please reload the page.', true);
-            return;
-        }
-
-        document.getElementById('loadingText').textContent = 'Starting camera…';
-
+        // Load camera first so wall check has pixels
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -1803,28 +1784,49 @@
             state.video.srcObject = stream;
             await state.video.play();
         } catch (e) {
-            document.getElementById('loadingText').textContent = 'Camera access required.';
-            speak('Camera access is required. Please allow camera access and reload the page.', true);
-            return;
+            console.warn('Camera error:', e);
+        }
+
+        // Load COCO-SSD
+        try {
+            state.model = await cocoSsd.load();
+        } catch (e) {
+            console.error('COCO-SSD load failed:', e);
         }
 
         document.getElementById('loading').classList.add('hidden');
-
-        // Start depth model loading in background — non-blocking, app works without it
         initDepthModel();
 
-        const isFirstRun = !localStorage.getItem('guidedog_v1');
-        if (isFirstRun) {
-            localStorage.setItem('guidedog_v1', 'true');
-            // Show privacy notice first, then help
-            privacyNotice.style.display = 'flex';
-            privacyAccept.addEventListener('click', showHelp, { once: true });
-        } else {
-            // Returning user — audio locked until first touch (iOS requirement).
-            state.isRunning = true;
-            protectionLoop();
-            fastHazardLoop();
-        }
+        // Show privacy every launch — tap anywhere to progress
+        // First tap: says "Welcome to GuideDog" + reads privacy aloud
+        // Second tap: moves to features
+        privacyNotice.style.display = 'flex';
+        let privacyRead = false;
+
+        const handlePrivacyTap = () => {
+            if (!privacyRead) {
+                // FIRST TAP — unlock audio, say welcome, read privacy
+                privacyRead = true;
+                unlockAudio();
+                try {
+                    const u = new SpeechSynthesisUtterance(
+                        'Welcome to GuideDog. ' +
+                        'This app needs camera access to detect obstacles. ' +
+                        'A cloud AI acts as your sighted guide. No data is stored. ' +
+                        'Tap again to continue.'
+                    );
+                    u.rate = 1.0; u.volume = 1.0;
+                    speechSynthesis.speak(u);
+                } catch(e){}
+                return;
+            }
+            // SECOND TAP — dismiss privacy, show features
+            try { speechSynthesis.cancel(); } catch(e){}
+            privacyNotice.style.display = 'none';
+            privacyNotice.removeEventListener('click', handlePrivacyTap);
+            showHelp();
+        };
+        privacyNotice.addEventListener('click', handlePrivacyTap);
     }
     
     window.addEventListener('load', init);
